@@ -89,6 +89,12 @@ earlier run so you can remove them yourself.
     give each meter character 8 steps.
   - `WAVE` — the 32-entry wave table, plotted two character rows tall. Two rows
     give 16 levels instead of the 8 a single row can show.
+- Master line: the master balance, the selected channel and the write count.
+- LFO line: register 9 split into its two fields. `enabled` is bit 7, which
+  disables the LFO and resets its source channel when set. `depth` is bits 1
+  and 0, which scale the source channel output by 0, 1, 16 or 256 before it
+  reaches the pitch. The raw register byte stays on the line. The line dims
+  unless the LFO is enabled at a non-zero depth.
 - Log: the command stream around the cursor. The current command is marked `>`.
 
 ## Keys

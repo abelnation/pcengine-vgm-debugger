@@ -14,6 +14,7 @@ from .huc6280 import (
     WAVE_LENGTH,
     WAVE_ROWS,
     db_fraction,
+    lfo_depth_factor,
     meter,
     note_text,
     wave_rows,
@@ -198,11 +199,18 @@ class Debugger:
         master = (
             f" master balance L={state.master_left:X} R={state.master_right:X}"
             f"   selected ch{state.selected}"
-            f"   LFO freq={state.lfo_frequency} ctrl=0x{state.lfo_control:02X}"
             f"   writes {state.writes}"
         )
+        lfo = (
+            f" LFO  enabled {'yes' if state.lfo_enabled else 'no '}"
+            f"   depth {state.lfo_depth} (x{lfo_depth_factor(state.lfo_depth)})"
+            f"   freq {state.lfo_frequency}"
+            f"   ctrl 0x{state.lfo_control:02X}"
+        )
         self._put(screen, row, 0, master, curses.color_pair(PAIR_DIM))
-        return row + 2
+        attr = 0 if state.lfo_enabled and state.lfo_depth else curses.color_pair(PAIR_DIM)
+        self._put(screen, row + 1, 0, lfo, attr)
+        return row + 3
 
     def _visible_log_indices(self, rows: int):
         commands = self.timeline.commands

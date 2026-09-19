@@ -9,8 +9,11 @@ from pcevgm.huc6280 import (
     SAMPLE_MASK,
     WAVE_LENGTH,
     WAVE_ROWS,
+    LFO_DEPTH_FACTORS,
     HuC6280State,
     db_fraction,
+    describe_write,
+    lfo_depth_factor,
     meter,
     note_text,
     sparkline,
@@ -205,6 +208,48 @@ class LevelStepTests(unittest.TestCase):
             state.channels[0].level_steps(0x0F, 0x0F),
             (MAX_VOLUME_STEPS, MAX_VOLUME_STEPS),
         )
+
+
+class LfoControlTests(unittest.TestCase):
+    def setUp(self):
+        self.state = HuC6280State()
+
+    def test_reset_state_is_enabled_at_zero_depth(self):
+        self.assertTrue(self.state.lfo_enabled)
+        self.assertEqual(self.state.lfo_depth, 0)
+
+    def test_bit_7_disables_and_the_low_bits_set_depth(self):
+        self.state.write(0x09, 0x82)
+        self.assertFalse(self.state.lfo_enabled)
+        self.assertEqual(self.state.lfo_depth, 2)
+        self.assertEqual(self.state.lfo_control, 0x82)
+
+    def test_clearing_bit_7_enables_again(self):
+        self.state.write(0x09, 0x83)
+        self.state.write(0x09, 0x03)
+        self.assertTrue(self.state.lfo_enabled)
+        self.assertEqual(self.state.lfo_depth, 3)
+
+    def test_middle_bits_are_not_depth(self):
+        self.state.write(0x09, 0x7C)  # every bit between 7 and 2
+        self.assertTrue(self.state.lfo_enabled)
+        self.assertEqual(self.state.lfo_depth, 0)
+
+    def test_the_frequency_register_leaves_depth_alone(self):
+        self.state.write(0x09, 0x03)
+        self.state.write(0x08, 0xFF)
+        self.assertEqual(self.state.lfo_frequency, 0xFF)
+        self.assertEqual(self.state.lfo_depth, 3)
+
+    def test_depth_codes_map_to_their_factors(self):
+        self.assertEqual(
+            [lfo_depth_factor(code) for code in range(4)], list(LFO_DEPTH_FACTORS)
+        )
+        self.assertEqual(lfo_depth_factor(0xFE), LFO_DEPTH_FACTORS[2])
+
+    def test_written_text_names_both_fields(self):
+        self.assertEqual(describe_write(0x09, 0x02, 0), "LFO on  depth 2 (x16)")
+        self.assertEqual(describe_write(0x09, 0x83, 0), "LFO off depth 3 (x256)")
 
 
 if __name__ == "__main__":

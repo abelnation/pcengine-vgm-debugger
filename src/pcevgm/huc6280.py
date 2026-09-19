@@ -53,10 +53,17 @@ CONTROL_ENABLE = 0x80
 CONTROL_DDA = 0x40
 NOISE_ENABLE = 0x80
 NOISE_FREQ_MASK = 0x1F
-LFO_DISABLE = 0x80
-LFO_MODE_MASK = 0x03
+LFO_DISABLE = 0x80  # 1 disables the LFO and resets the source channel
+LFO_DEPTH_MASK = 0x03
+# A depth code adds the source channel output times this factor to the pitch.
+LFO_DEPTH_FACTORS = (0, 1, 16, 256)
 
 NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+
+
+def lfo_depth_factor(depth: int) -> int:
+    """The pitch multiplier a LFO depth code selects."""
+    return LFO_DEPTH_FACTORS[depth & LFO_DEPTH_MASK]
 BLOCKS = "▁▂▃▄▅▆▇█"  # 8 levels; every wave cell stays visible
 HBLOCKS = "▏▎▍▌▋▊▉█"  # the same 8 steps lying down, for meters
 WAVE_ROWS = 2  # character rows the two-row plot uses
@@ -121,7 +128,9 @@ class HuC6280State:
         self.master_left = 0
         self.master_right = 0
         self.lfo_frequency = 0
-        self.lfo_control = 0
+        self.lfo_control = 0  # the raw register byte
+        self.lfo_enabled = True  # bit 7 clear
+        self.lfo_depth = 0  # bits 1 and 0
         self.writes = 0
 
     def write(self, register: int, value: int) -> None:
@@ -141,6 +150,8 @@ class HuC6280State:
             return
         if register == REG_LFO_CONTROL:
             self.lfo_control = value
+            self.lfo_enabled = not value & LFO_DISABLE
+            self.lfo_depth = value & LFO_DEPTH_MASK
             return
         if self.selected >= NUM_CHANNELS:
             return  # channel 6 and 7 do not exist
@@ -184,8 +195,9 @@ def describe_write(register: int, value: int, selected: int) -> str:
     if register == REG_LFO_FREQ:
         return f"LFO freq {value}"
     if register == REG_LFO_CONTROL:
-        state = "off" if value & LFO_DISABLE else "on"
-        return f"LFO {state} mode={value & LFO_MODE_MASK}"
+        depth = value & LFO_DEPTH_MASK
+        state = "off" if value & LFO_DISABLE else "on "
+        return f"LFO {state} depth {depth} (x{lfo_depth_factor(depth)})"
 
     prefix = f"ch{selected}"
     if register == REG_FREQ_LOW:
