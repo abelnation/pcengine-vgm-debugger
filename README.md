@@ -8,15 +8,31 @@ produce audio.
 
 ## Requirements
 
-Python 3.10 or later. No third-party packages. The user interface uses the
-`curses` module from the standard library.
+Python 3.10 or later and pip 21.3 or newer. No third-party packages. The user
+interface uses the `curses` module from the standard library.
 
 ## Setup
 
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate
+python -m pip install --upgrade pip
 pip install -e .
+```
+
+Upgrading pip is not optional. This project carries only a `pyproject.toml`,
+and installing one of those in editable mode needs pip 21.3 or newer. An older
+pip fails with:
+
+```
+ERROR: File "setup.py" or "setup.cfg" not found.
+Directory cannot be installed in editable mode
+```
+
+If you would rather not install at all, nothing here needs it:
+
+```sh
+PYTHONPATH=src python3 -m pcevgm song.vgz
 ```
 
 ## Run
@@ -24,12 +40,6 @@ pip install -e .
 ```sh
 python tools/make_example.py      # writes examples/scale.vgm
 pcevgm examples/scale.vgm
-```
-
-Without installing:
-
-```sh
-PYTHONPATH=src python3 -m pcevgm examples/scale.vgm
 ```
 
 Text modes:
