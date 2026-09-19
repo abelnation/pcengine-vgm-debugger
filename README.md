@@ -111,9 +111,17 @@ duration.
 
 ### Fewer presets
 
-Instruments that end up sounding the same share one preset, named after
-whichever plays the most notes. Two settings match when their times agree and
-their sustains agree:
+Instruments that end up sounding the same share one preset. A preset is named
+for what it is rather than which instrument it came from:
+
+```
+wave-01 a23 d187 s-12 r904.adv
+```
+
+the wave table it plays, then attack, decay and release in whole milliseconds
+and the sustain in dB below the peak. Names sort by wave in Live's browser.
+
+Two settings match when their times agree and their sustains agree:
 
 - a time closer than one video frame is the same time, because that is how
   often the driver can change anything

@@ -158,6 +158,41 @@ class GroupInstrumentTests(unittest.TestCase):
         self.assertLessEqual(wide, narrow)
 
 
+class NameTests(unittest.TestCase):
+    def test_the_name_carries_the_wave_and_the_envelope(self):
+        self.assertEqual(
+            ableton.preset_name("wave-01", (0.1, 526.1, 0.0003162277571, 29.2)),
+            "wave-01 a0 d526 s-70 r29",
+        )
+
+    def test_the_sustain_reads_as_db_below_the_peak(self):
+        self.assertIn(" s0 ", ableton.preset_name("wave-00", (0.1, 100.0, 1.0, 50.0)))
+        self.assertIn(" s-12 ", ableton.preset_name("wave-00", (0.1, 100.0, 0.2512, 50.0)))
+
+    def test_the_sustain_never_reads_below_the_floor(self):
+        name = ableton.preset_name("wave-00", (0.1, 100.0, ableton.LEVEL_FLOOR, 50.0))
+        self.assertIn(f" s{-round(ableton.FLOOR_DB)} ", name)
+
+    def test_a_name_holds_no_instrument_number(self):
+        name = ableton.preset_name("wave-03", (23.4, 187.1, 0.2512, 904.3))
+        self.assertNotIn("inst", name)
+        self.assertTrue(name.startswith("wave-03 "))
+
+    def test_names_sort_by_wave(self):
+        values = (0.1, 100.0, 0.5, 50.0)
+        names = [ableton.preset_name(w, values) for w in ("wave-02", "wave-00", "wave-01")]
+        self.assertEqual(sorted(names), [n for n in sorted(names)])
+        self.assertTrue(sorted(names)[0].startswith("wave-00"))
+
+    def test_settings_far_enough_apart_to_survive_grouping_get_their_own_name(self):
+        close = (0.1, 200.0, 0.5, 300.0)
+        apart = (0.1, 200.0 + 2 * ableton.FRAME_MS + 5, 0.5, 300.0)
+        self.assertFalse(ableton.same_preset(close, apart, tolerance=0.0))
+        self.assertNotEqual(
+            ableton.preset_name("wave-00", close), ableton.preset_name("wave-00", apart)
+        )
+
+
 class TemplateTests(unittest.TestCase):
     def test_the_template_ships_with_the_package(self):
         self.assertTrue(os.path.exists(ableton.TEMPLATE))
@@ -219,6 +254,7 @@ class WriteTests(unittest.TestCase):
             self.assertEqual(len(written), len(analysis.instruments))
             for row in written:
                 self.assertTrue(os.path.exists(os.path.join(out, row[0] + ableton.SUFFIX)))
+                self.assertTrue(row[0].startswith(row[1].strip() + " "))
 
     def test_a_preset_reports_what_it_covers(self):
         vgm, analysis = build_analysis(two_instruments())

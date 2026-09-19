@@ -170,6 +170,22 @@ def group_instruments(analysis: Analysis, tolerance: float = TOLERANCE,
     return mapping
 
 
+def preset_name(wave: str, values) -> str:
+    """A file name saying which wave a preset plays and how it is shaped.
+
+    Times are whole milliseconds and the sustain is dB below the peak, which
+    reads better in Live's browser than Simpler's linear amplitude. Two presets
+    that survived grouping differ by more than a frame or more than 1.5 dB, so
+    rounding cannot collapse them into one name.
+    """
+    attack, decay, sustain, release = values
+    db = 20 * math.log10(sustain) if sustain > 0 else -FLOOR_DB
+    return (
+        f"{wave.strip()} a{round(attack)} d{round(decay)} "
+        f"s{round(max(db, -FLOOR_DB))} r{round(release)}"
+    )
+
+
 def _set(node, path: str, value) -> None:
     found = node.find(path)
     if found is None:
@@ -232,14 +248,18 @@ def write_presets(vgm, analysis: Analysis, wave_dir: str, out_dir: str,
         covered.setdefault(head, []).append(instrument)
 
     written = []
+    taken = set()
     for head in sorted(covered, key=lambda h: (-uses[h], h)):
         wave, envelope_id = analysis.instruments[head]
         wav = os.path.join(wave_dir, wave.strip() + WAV_SUFFIX)
         if not os.path.exists(wav):
             continue  # the note played a table that matched no complete upload
-        name = analysis.instrument_names[head]
         relative, absolute = sample_paths(wav, library, sample_dir)
         values = adsr(analysis, head)
+        name = preset_name(wave, values)
+        while name in taken:  # rounding should not collide, but never overwrite
+            name += "'"
+        taken.add(name)
         preset = os.path.join(out_dir, f"{name}{SUFFIX}")
         with open(preset, "wb") as handle:
             handle.write(build(name, wav, values, relative, absolute))

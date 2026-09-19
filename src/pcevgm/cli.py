@@ -155,12 +155,12 @@ def _export_ableton(vgm, out_dir, library, sample_dir, tolerance, min_notes) -> 
     if not sample_dir:
         print("pcevgm: without --sample-dir a preset carries only an absolute"
               " sample path", file=sys.stderr)
-    print(f"{'preset':10} {'wave':9} {'envelope':9} "
+    print(f"{'preset':30} {'envelope':9} "
           f"{'attack':>8} {'decay':>9} {'sustain':>8} {'release':>9} "
           f"{'covers':>7} {'notes':>6}")
-    for name, wave, envelope, values, instruments, notes in written:
+    for name, _, envelope, values, instruments, notes in written:
         attack, decay, sustain, release = values
-        print(f"{name:10} {wave:9} {envelope:9} "
+        print(f"{name:30} {envelope:9} "
               f"{attack:8.1f} {decay:9.1f} {sustain:8.4f} {release:9.1f} "
               f"{instruments:7d} {notes:6d}")
     return 0
