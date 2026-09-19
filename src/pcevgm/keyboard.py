@@ -3,9 +3,12 @@
 Everything here is a pure function of HuC6280 state, so the view needs no
 replay pass of its own and no terminal.
 
-Each white key takes two cells on the lower row. Each black key takes one cell
-on the upper row, over the right half of the white key below it. The rest of
-the upper row is the top of a white key, which is what a real keyboard shows.
+Each layer of keys is KEY_ROWS character rows tall. A white key is two cells
+wide on the lower layer, so it holds four cells. A black key is one cell wide
+on the upper layer, over the right half of the white key below it, so it holds
+two. The rest of the upper layer is the top of a white key, which is what a
+real keyboard shows. The cells of one key are shared out between the channels
+sounding it, so several voices on one note stay readable.
 """
 
 from __future__ import annotations
@@ -23,12 +26,14 @@ BLACK_STEPS = (1, 3, 6, 8, 10)
 CELLS_PER_WHITE = 2
 OCTAVE_CELLS = len(WHITE_STEPS) * CELLS_PER_WHITE  # 14
 WIDTH = OCTAVES * OCTAVE_CELLS  # 70
+KEY_ROWS = 2  # character rows per layer of keys
+TOTAL_ROWS = 2 * KEY_ROWS  # the black layer above the white layer
+FIRST_WHITE_ROW = KEY_ROWS
 
 # Below this a channel is parked, not playing. At -60 dB the display fills with
 # channels sitting on divider 0 at 27 Hz.
 SILENCE_DB = -40.0
 
-UPPER, LOWER = 0, 1
 SEPARATOR = "▏"  # the line between two white keys
 BELOW_MARK = "<"
 ABOVE_MARK = ">"
@@ -45,15 +50,24 @@ class Cell:
 
 
 def _build_keys():
-    """semitone offset -> (row, first cell, cell count), plus the black cells."""
+    """semitone offset -> its (row, column) cells, plus the black key columns.
+
+    Cells run left to right, then top to bottom.
+    """
     keys = {}
     black_cells = set()
     column = 0
     for octave in range(OCTAVES):
         for step in WHITE_STEPS:
-            keys[octave * 12 + step] = (LOWER, column, CELLS_PER_WHITE)
+            keys[octave * 12 + step] = [
+                (row, column + cell)
+                for row in range(FIRST_WHITE_ROW, TOTAL_ROWS)
+                for cell in range(CELLS_PER_WHITE)
+            ]
             if step + 1 in BLACK_STEPS:
-                keys[octave * 12 + step + 1] = (UPPER, column + 1, 1)
+                keys[octave * 12 + step + 1] = [
+                    (row, column + 1) for row in range(KEY_ROWS)
+                ]
                 black_cells.add(column + 1)
             column += CELLS_PER_WHITE
     return keys, frozenset(black_cells)
@@ -95,12 +109,41 @@ def unpitched(state) -> list:
     return out
 
 
+def _blank_rows():
+    rows = []
+    for row in range(TOTAL_ROWS):
+        if row < FIRST_WHITE_ROW:
+            rows.append([Cell(" ", column in BLACK_CELLS) for column in range(WIDTH)])
+            continue
+        cells = [Cell(" ", False) for _ in range(WIDTH)]
+        for column in range(0, WIDTH, CELLS_PER_WHITE):
+            cells[column].char = SEPARATOR
+        rows.append(cells)
+    return rows
+
+
+def _fill_key(cells: list, channels: list) -> None:
+    """Share a key's cells out between the channels sounding it."""
+    count = len(cells)
+    if len(channels) > count:
+        for index in range(count - 1):
+            cells[index].channel = channels[index]
+            cells[index].char = str(channels[index])
+        cells[-1].channel = channels[count - 1]
+        cells[-1].char = MORE_MARK
+        return
+    previous = None
+    for index, cell in enumerate(cells):
+        channel = channels[index * len(channels) // count]
+        cell.channel = channel
+        if channel != previous:  # name each channel once, at its first cell
+            cell.char = str(channel)
+            previous = channel
+
+
 def render(state, floor_db: float = SILENCE_DB):
-    """The upper and lower cell rows for the current state."""
-    upper = [Cell(" ", column in BLACK_CELLS) for column in range(WIDTH)]
-    lower = [Cell(" ", False) for _ in range(WIDTH)]
-    for column in range(0, WIDTH, CELLS_PER_WHITE):
-        lower[column].char = SEPARATOR
+    """One list of cells per character row, top to bottom."""
+    rows = _blank_rows()
 
     by_key = {}
     for channel, offset in sorted(sounding(state, floor_db).items()):
@@ -108,21 +151,13 @@ def render(state, floor_db: float = SILENCE_DB):
 
     for offset, channels in sorted(by_key.items()):
         if offset not in KEYS:
-            cell = lower[0] if offset < 0 else lower[WIDTH - 1]
+            edge = 0 if offset < 0 else WIDTH - 1
+            cell = rows[FIRST_WHITE_ROW][edge]
             cell.char = BELOW_MARK if offset < 0 else ABOVE_MARK
             cell.channel = channels[0]
             continue
-        row, start, count = KEYS[offset]
-        cells = upper if row == UPPER else lower
-        # A white key has two cells, so it can name two channels at once.
-        for step in range(count):
-            cell = cells[start + step]
-            cell.channel = channels[step] if step < len(channels) else channels[0]
-            if step < len(channels):
-                cell.char = str(channels[step])
-        if len(channels) > count:
-            cells[start + count - 1].char = MORE_MARK
-    return upper, lower
+        _fill_key([rows[row][column] for row, column in KEYS[offset]], channels)
+    return rows
 
 
 def labels() -> str:

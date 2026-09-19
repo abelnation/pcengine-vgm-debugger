@@ -77,13 +77,18 @@ earlier run so you can remove them yourself.
 ## Screen
 
 - Header: file name, VGM version, chip clocks, GD3 tags, transport, progress.
-- Keyboard: five octaves, C1 to B5, showing what sounds right now. Each white
-  key takes two cells on the lower row; each black key takes one cell on the
-  upper row, over the right half of the white key below it. An active key
-  changes background colour, one colour per channel, so the key keeps its
-  shape. The digit on the key is the channel number. Two channels on one white
-  key take a cell each; more than that shows `+`. A pitch off the ends of the
-  board marks the edge with `<` or `>`. Press `k` to hide it.
+- Keyboard: five octaves, C1 to B5, showing what sounds right now. Each layer
+  of keys is two character rows tall. A white key is two cells wide on the
+  lower layer, so it holds four cells. A black key is one cell wide on the
+  upper layer, over the right half of the white key below it, so it holds two.
+  An active key changes background colour, one colour per channel, so the key
+  keeps its shape. The digit names the channel.
+  - The cells of a key are shared out between the channels sounding it. One
+    channel fills the key. Two split it in half, one above the other. Four take
+    a cell each. Beyond that the last cell shows `+`.
+  - A pitch off the ends of the board marks the edge with `<` or `>`.
+  - Press `k` to hide it. It hides itself below 29 terminal rows rather than
+    push a channel off the table.
 - Channel table: two rows per PSG channel.
   - First row: `ST` (`ON`, `DDA` or `off`), `DIV` (the 12-bit frequency
     divider), `HZ` and `NOTE` (the divider as a pitch, with cents offset),
@@ -160,7 +165,7 @@ python -m unittest discover -s tests -t .
   `NOTE` column carries the cents offset.
 - A channel counts as sounding on the keyboard above -40 dB. At -60 dB the
   board fills with channels parked on divider 0 at 27 Hz.
-- The keyboard needs about 74 terminal columns.
+- The keyboard needs about 74 terminal columns and 29 rows.
 - Commands for other chips are decoded for length and time only.
 - Wave extraction ignores a partial pass. A track that rewrites only part of
   a table produces no new entry until the next full pass.

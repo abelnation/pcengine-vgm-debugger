@@ -39,20 +39,32 @@ class LayoutTests(unittest.TestCase):
     def test_every_semitone_has_a_key(self):
         self.assertEqual(sorted(keyboard.KEYS), list(range(keyboard.SEMITONES)))
 
-    def test_white_keys_take_two_lower_cells_and_black_keys_one_upper(self):
-        for offset, (row, start, count) in keyboard.KEYS.items():
+    def test_each_layer_is_key_rows_tall(self):
+        for offset, cells in keyboard.KEYS.items():
+            rows = {row for row, _ in cells}
+            self.assertEqual(len(rows), keyboard.KEY_ROWS, offset)
             if offset % 12 in keyboard.BLACK_STEPS:
-                self.assertEqual((row, count), (keyboard.UPPER, 1), offset)
+                self.assertTrue(all(row < keyboard.FIRST_WHITE_ROW for row in rows))
             else:
-                self.assertEqual((row, count), (keyboard.LOWER, 2), offset)
-            self.assertLessEqual(start + count, keyboard.WIDTH)
+                self.assertTrue(all(row >= keyboard.FIRST_WHITE_ROW for row in rows))
+
+    def test_white_keys_hold_four_cells_and_black_keys_two(self):
+        for offset, cells in keyboard.KEYS.items():
+            expected = 1 if offset % 12 in keyboard.BLACK_STEPS else keyboard.CELLS_PER_WHITE
+            self.assertEqual(len(cells), expected * keyboard.KEY_ROWS, offset)
+
+    def test_cells_stay_inside_the_board(self):
+        for cells in keyboard.KEYS.values():
+            for row, column in cells:
+                self.assertTrue(0 <= row < keyboard.TOTAL_ROWS)
+                self.assertTrue(0 <= column < keyboard.WIDTH)
 
     def test_no_two_keys_share_a_cell(self):
         seen = set()
-        for row, start, count in keyboard.KEYS.values():
-            for step in range(count):
-                self.assertNotIn((row, start + step), seen)
-                seen.add((row, start + step))
+        for cells in keyboard.KEYS.values():
+            for cell in cells:
+                self.assertNotIn(cell, seen)
+                seen.add(cell)
 
     def test_black_cells_follow_the_piano_pattern(self):
         first = sorted(c for c in keyboard.BLACK_CELLS if c < keyboard.OCTAVE_CELLS)
@@ -108,58 +120,79 @@ class SoundingTests(unittest.TestCase):
 
 
 class RenderTests(unittest.TestCase):
-    def cells(self, state):
-        return keyboard.render(state)
+    C4_KEY, CSHARP4_KEY = 36, 37
+
+    def key_cells(self, state, offset):
+        rows = keyboard.render(state)
+        return [rows[row][column] for row, column in keyboard.KEYS[offset]]
+
+    def test_render_returns_one_list_per_character_row(self):
+        rows = keyboard.render(HuC6280State())
+        self.assertEqual(len(rows), keyboard.TOTAL_ROWS)
+        for cells in rows:
+            self.assertEqual(len(cells), keyboard.WIDTH)
 
     def test_an_idle_keyboard_has_no_channel_on_any_cell(self):
-        upper, lower = self.cells(HuC6280State())
-        self.assertTrue(all(cell.channel is None for cell in upper + lower))
+        rows = keyboard.render(HuC6280State())
+        self.assertTrue(all(cell.channel is None for cells in rows for cell in cells))
 
-    def test_black_cells_are_marked_on_the_upper_row(self):
-        upper, _ = self.cells(HuC6280State())
-        marked = {index for index, cell in enumerate(upper) if cell.black}
-        self.assertEqual(marked, set(keyboard.BLACK_CELLS))
+    def test_black_cells_are_marked_on_every_upper_row(self):
+        rows = keyboard.render(HuC6280State())
+        for row in range(keyboard.FIRST_WHITE_ROW):
+            marked = {index for index, cell in enumerate(rows[row]) if cell.black}
+            self.assertEqual(marked, set(keyboard.BLACK_CELLS))
 
-    def test_a_white_key_colours_both_cells_and_names_the_channel(self):
-        _, lower = self.cells(state_with({1: C4}))
-        row, start, count = keyboard.KEYS[36]
-        self.assertEqual(row, keyboard.LOWER)
-        self.assertEqual([lower[start + s].channel for s in range(count)], [1, 1])
-        self.assertEqual(lower[start].char, "1")
+    def test_one_channel_fills_the_whole_key_and_is_named_once(self):
+        cells = self.key_cells(state_with({1: C4}), self.C4_KEY)
+        self.assertEqual([cell.channel for cell in cells], [1] * len(cells))
+        self.assertEqual([cell.char for cell in cells].count("1"), 1)
+        self.assertEqual(cells[0].char, "1")
 
-    def test_a_black_key_colours_its_upper_cell(self):
-        upper, lower = self.cells(state_with({2: CSHARP4}))
-        row, start, count = keyboard.KEYS[37]
-        self.assertEqual((row, count), (keyboard.UPPER, 1))
-        self.assertEqual(upper[start].channel, 2)
-        self.assertEqual(upper[start].char, "2")
-        self.assertTrue(all(cell.channel is None for cell in lower))
+    def test_a_black_key_fills_both_of_its_rows(self):
+        cells = self.key_cells(state_with({2: CSHARP4}), self.CSHARP4_KEY)
+        self.assertEqual(len(cells), keyboard.KEY_ROWS)
+        self.assertEqual([cell.channel for cell in cells], [2, 2])
+        rows = keyboard.render(state_with({2: CSHARP4}))
+        white = rows[keyboard.FIRST_WHITE_ROW] + rows[keyboard.TOTAL_ROWS - 1]
+        self.assertTrue(all(cell.channel is None for cell in white))
 
-    def test_two_channels_on_one_key_take_a_cell_each(self):
-        _, lower = self.cells(state_with({0: C4, 4: C4}))
-        _, start, _ = keyboard.KEYS[36]
-        self.assertEqual([lower[start].channel, lower[start + 1].channel], [0, 4])
-        self.assertEqual([lower[start].char, lower[start + 1].char], ["0", "4"])
+    def test_two_channels_split_the_key_in_half(self):
+        cells = self.key_cells(state_with({0: C4, 4: C4}), self.C4_KEY)
+        half = len(cells) // 2
+        self.assertEqual([cell.channel for cell in cells], [0] * half + [4] * half)
+        self.assertEqual([cell.char for cell in cells], ["0", " ", "4", " "])
+
+    def test_two_channels_on_a_black_key_take_a_row_each(self):
+        cells = self.key_cells(state_with({2: CSHARP4, 5: CSHARP4}), self.CSHARP4_KEY)
+        self.assertEqual([cell.channel for cell in cells], [2, 5])
+        self.assertEqual([cell.char for cell in cells], ["2", "5"])
+
+    def test_four_channels_take_a_cell_each(self):
+        state = state_with({0: C4, 1: C4, 2: C4, 3: C4})
+        cells = self.key_cells(state, self.C4_KEY)
+        self.assertEqual([cell.channel for cell in cells], [0, 1, 2, 3])
+        self.assertEqual([cell.char for cell in cells], ["0", "1", "2", "3"])
 
     def test_more_channels_than_cells_show_the_overflow_mark(self):
-        _, lower = self.cells(state_with({0: C4, 1: C4, 2: C4}))
-        _, start, count = keyboard.KEYS[36]
-        self.assertEqual(lower[start + count - 1].char, keyboard.MORE_MARK)
+        state = state_with({index: C4 for index in range(5)})
+        cells = self.key_cells(state, self.C4_KEY)
+        self.assertEqual(cells[-1].char, keyboard.MORE_MARK)
+        self.assertEqual([cell.char for cell in cells[:-1]], ["0", "1", "2"])
 
     def test_a_pitch_above_the_keyboard_marks_the_right_edge(self):
-        _, lower = self.cells(state_with({3: C6}))
-        self.assertEqual(lower[-1].char, keyboard.ABOVE_MARK)
-        self.assertEqual(lower[-1].channel, 3)
+        rows = keyboard.render(state_with({3: C6}))
+        cell = rows[keyboard.FIRST_WHITE_ROW][-1]
+        self.assertEqual((cell.char, cell.channel), (keyboard.ABOVE_MARK, 3))
 
     def test_a_pitch_below_the_keyboard_marks_the_left_edge(self):
-        _, lower = self.cells(state_with({3: 0}))
-        self.assertEqual(lower[0].char, keyboard.BELOW_MARK)
-        self.assertEqual(lower[0].channel, 3)
+        rows = keyboard.render(state_with({3: 0}))
+        cell = rows[keyboard.FIRST_WHITE_ROW][0]
+        self.assertEqual((cell.char, cell.channel), (keyboard.BELOW_MARK, 3))
 
     def test_the_lowest_key_on_the_board_is_not_an_edge_mark(self):
-        _, lower = self.cells(state_with({0: C1}))
-        self.assertEqual(lower[0].char, "0")
-        self.assertEqual(lower[0].channel, 0)
+        cells = self.key_cells(state_with({0: C1}), 0)
+        self.assertEqual(cells[0].char, "0")
+        self.assertEqual(cells[0].channel, 0)
 
 
 if __name__ == "__main__":

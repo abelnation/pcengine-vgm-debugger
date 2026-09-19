@@ -64,7 +64,9 @@ CHANNEL_COLORS = (
     curses.COLOR_CYAN,
 )
 KEY_LEFT = 1  # indent of the keyboard
-KEYBOARD_ROWS = 4  # two key rows, the octave labels and a blank line
+KEYBOARD_ROWS = keyboard.TOTAL_ROWS + 2  # the keys, the octave labels, a blank
+CHANNEL_ROWS = 1 + NUM_CHANNELS * WAVE_ROWS + 3  # header, channels, master, LFO
+HEADER_ROWS = 6
 
 HELP_LINES = [
     "space      play / pause",
@@ -204,9 +206,10 @@ class Debugger:
             for column, cell in enumerate(cells):
                 self._put(screen, top + offset, KEY_LEFT + column, cell.char,
                           self._key_attr(cell))
-        self._put(screen, top + 2, KEY_LEFT, keyboard.labels(), curses.color_pair(PAIR_DIM))
+        labels = top + keyboard.TOTAL_ROWS
+        self._put(screen, labels, KEY_LEFT, keyboard.labels(), curses.color_pair(PAIR_DIM))
         aside = "  ".join(f"ch{index} {why}" for index, why in keyboard.unpitched(state))
-        self._put(screen, top + 2, KEY_LEFT + keyboard.WIDTH + 2, aside,
+        self._put(screen, labels, KEY_LEFT + keyboard.WIDTH + 2, aside,
                   curses.color_pair(PAIR_DIM))
         return top + KEYBOARD_ROWS
 
@@ -319,11 +322,15 @@ class Debugger:
         for line, text in enumerate(HELP_LINES):
             self._put(screen, top + 3 + line, left + 2, text, curses.A_REVERSE)
 
+    def _keyboard_fits(self, height: int) -> bool:
+        """The keyboard gives way rather than cut a channel off the table."""
+        return height >= HEADER_ROWS + KEYBOARD_ROWS + CHANNEL_ROWS + 1
+
     def _draw(self, screen) -> None:
         screen.erase()
         height = screen.getmaxyx()[0]
         row = self._draw_header(screen)
-        if self.show_keyboard:
+        if self.show_keyboard and self._keyboard_fits(height):
             row = self._draw_keyboard(screen, row)
         row = self._draw_channels(screen, row)
         self._draw_log(screen, row, height - row - 1)
