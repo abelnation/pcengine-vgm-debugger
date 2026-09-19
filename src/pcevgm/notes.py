@@ -86,13 +86,16 @@ class Analysis:
     def channel_notes(self, channel: int) -> list:
         return self._per_channel[channel]
 
+    def last_note_at(self, channel: int, sample: int):
+        """The last note a channel started at or before a sample time."""
+        index = bisect.bisect_right(self._starts[channel], sample) - 1
+        return None if index < 0 else self._per_channel[channel][index]
+
     def note_at(self, channel: int, sample: int):
         """The note sounding on a channel at a sample time, or None."""
-        starts = self._starts[channel]
-        index = bisect.bisect_right(starts, sample) - 1
-        if index < 0:
+        note = self.last_note_at(channel, sample)
+        if note is None:
             return None
-        note = self._per_channel[channel][index]
         return note if note.start <= sample <= note.end else None
 
     def instrument_at(self, channel: int, sample: int):
@@ -100,12 +103,16 @@ class Analysis:
         return None if note is None else note.instrument
 
     def envelope_at(self, channel: int, sample: int):
-        """The envelope sounding on a channel and the step it has reached.
+        """The envelope on a channel and the step it has reached.
 
         The envelope is the instrument's, which a note cut short only gets part
         of the way through, so the step says how far this note actually got.
+
+        A finished note holds, rather than clearing the panel between notes.
+        The reading stays true: the step rests at the last amplitude written,
+        which is where the note left off.
         """
-        note = self.note_at(channel, sample)
+        note = self.last_note_at(channel, sample)
         if note is None or not note.envelope:
             return None, 0
         return note.envelope, min(note.step_at(sample), len(note.envelope) - 1)

@@ -157,11 +157,12 @@ earlier run so you can remove them yourself.
     rows tall. One character covers two samples and four dot rows, so three
     rows resolve twelve levels in sixteen columns. The dots between two
     neighbouring samples are lit too, so the line stays joined.
-  - `ENVELOPE` — the envelope of the instrument sounding on the channel, one
-    column per two amplitude steps, drawn the same way. The step the note has
-    reached shows in reverse video. The column is blank when the detector
-    finds no note on that channel. The field stops at 12 columns, 24 steps,
-    which holds 85% of notes whole; a longer envelope ends in `>`.
+  - `ENVELOPE` — the envelope of the instrument on the channel, one column per
+    two amplitude steps, drawn the same way. The step the note has reached
+    shows in reverse video. A finished envelope holds, with its cursor resting
+    on the last amplitude written, until a new note replaces it; the column is
+    blank only before a channel's first note. The field stops at 12 columns,
+    24 steps, which holds 85% of notes whole; a longer envelope ends in `>`.
 - Master line: the master balance, the selected channel and the write count.
 - LFO line: register 9 split into its two fields. `enabled` is bit 7, which
   disables the LFO and resets its source channel when set. `depth` is bits 1

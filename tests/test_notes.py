@@ -246,10 +246,29 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(analysis.envelope_at(0, FRAME)[1], 1)
         self.assertEqual(analysis.envelope_at(0, 2 * FRAME)[1], 2)
 
-    def test_envelope_lookup_is_empty_with_no_note(self):
+    def test_envelope_lookup_is_empty_before_the_first_note(self):
         analysis = self.build()
         self.assertEqual(analysis.envelope_at(0, -1), (None, 0))
         self.assertEqual(analysis.envelope_at(4, 0), (None, 0))
+
+    def test_a_finished_envelope_holds_until_the_next_note(self):
+        analysis = self.build()
+        ended = analysis.notes[0].end
+        self.assertIsNone(analysis.note_at(0, ended + 2 * FRAME))  # nothing sounds
+        shape, step = analysis.envelope_at(0, ended + 2 * FRAME)
+        self.assertEqual(shape, (31, 28, 0))
+        self.assertEqual(step, len(shape) - 1)  # rests on its last amplitude
+
+    def test_a_new_note_replaces_the_held_envelope(self):
+        analysis = self.build()
+        first = analysis.envelope_at(0, 4 * FRAME)
+        later = analysis.envelope_at(0, 6 * FRAME)
+        self.assertEqual(first[1], 2)  # the first note, finished
+        self.assertEqual(later[1], 0)  # the second note, just struck
+
+    def test_holding_does_not_reach_across_channels(self):
+        analysis = self.build()
+        self.assertEqual(analysis.envelope_at(5, 10 * FRAME), (None, 0))
 
     def test_the_step_never_runs_past_the_envelope(self):
         wobble = [31, 30] * (notes.ENVELOPE_MAX_STEPS + 8)
