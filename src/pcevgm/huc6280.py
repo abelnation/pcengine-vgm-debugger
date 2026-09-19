@@ -58,12 +58,14 @@ LFO_MODE_MASK = 0x03
 
 NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 BLOCKS = "▁▂▃▄▅▆▇█"  # 8 levels; every wave cell stays visible
+HBLOCKS = "▏▎▍▌▋▊▉█"  # the same 8 steps lying down, for meters
 WAVE_ROWS = 2  # character rows the two-row plot uses
 
 # Amplitude steps are 1.5 dB. Balance steps are 3.0 dB, so two amplitude units.
 BALANCE_WEIGHT = 2
 MAX_VOLUME_STEPS = AMPLITUDE_MASK + 2 * BALANCE_WEIGHT * NIBBLE_MASK  # 91
 DB_PER_STEP = 1.5
+METER_FLOOR_DB = -60.0  # where a level meter reads empty
 
 
 @dataclass
@@ -86,17 +88,27 @@ class Channel:
         divider = self.frequency or 4096
         return clock / (WAVE_LENGTH * divider)
 
-    def levels_db(self, master_left: int, master_right: int):
-        """Attenuation per side in dB, or None when the channel is off."""
+    def level_steps(self, master_left: int, master_right: int):
+        """Volume per side in register steps, 0 to MAX_VOLUME_STEPS.
+
+        Returns None when the channel is off.
+        """
         if not self.enabled:
             return None
         left = self.amplitude + BALANCE_WEIGHT * (self.balance_left + master_left)
         right = self.amplitude + BALANCE_WEIGHT * (self.balance_right + master_right)
-        # The + 0.0 turns -0.0 into 0.0 at full volume.
         return (
-            -DB_PER_STEP * (MAX_VOLUME_STEPS - max(0, left)) + 0.0,
-            -DB_PER_STEP * (MAX_VOLUME_STEPS - max(0, right)) + 0.0,
+            max(0, min(MAX_VOLUME_STEPS, left)),
+            max(0, min(MAX_VOLUME_STEPS, right)),
         )
+
+    def levels_db(self, master_left: int, master_right: int):
+        """Attenuation per side in dB, or None when the channel is off."""
+        steps = self.level_steps(master_left, master_right)
+        if steps is None:
+            return None
+        # The + 0.0 turns -0.0 into 0.0 at full volume.
+        return tuple(-DB_PER_STEP * (MAX_VOLUME_STEPS - step) + 0.0 for step in steps)
 
 
 class HuC6280State:
@@ -231,3 +243,24 @@ def wave_rows(wave):
                 else BLOCKS[min(levels, level - floor) - 1]
             )
     return ["".join(row) for row in rows]
+
+
+def db_fraction(db: float) -> float:
+    """Map a dB level onto 0 to 1 for a meter, reading empty at METER_FLOOR_DB.
+
+    A meter linear in register steps would sit near full across the whole
+    musical range, because the chip spans about 136 dB.
+    """
+    return max(0.0, min(1.0, (db - METER_FLOOR_DB) / -METER_FLOOR_DB))
+
+
+def meter(fraction: float, width: int) -> str:
+    """A horizontal bar `width` characters wide, filled to `fraction`.
+
+    Partial blocks give each character 8 steps, so a narrow bar still moves.
+    """
+    steps = len(HBLOCKS)
+    filled = round(max(0.0, min(1.0, fraction)) * width * steps)
+    whole, part = divmod(filled, steps)
+    bar = HBLOCKS[-1] * whole + (HBLOCKS[part - 1] if part else "")
+    return bar.ljust(width)

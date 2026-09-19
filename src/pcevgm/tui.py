@@ -8,13 +8,22 @@ import locale
 import time
 
 from .huc6280 import (
+    AMPLITUDE_MASK,
     FIRST_NOISE_CHANNEL,
     NUM_CHANNELS,
     WAVE_LENGTH,
     WAVE_ROWS,
+    db_fraction,
+    meter,
     note_text,
     wave_rows,
 )
+
+# Widths of the channel table fields, so the meters land under their numbers.
+LEAD_WIDTH = 37  # everything up to the dB L column
+LEVEL_WIDTH = 6  # the dB L and dB R columns
+AMP_WIDTH = 3
+TAIL_WIDTH = 8  # the gap, the BAL column and the gap before WAVE
 from .player import HUC6280_WRITE, Timeline, build_descriptions
 from .vgm import SAMPLE_RATE, VgmFile
 
@@ -120,7 +129,7 @@ class Debugger:
         return 6
 
     def _channel_text(self, index: int, state):
-        """Head line, detail line and one wave string per character row."""
+        """Head line, meter line and one wave string per character row."""
         channel = state.channels[index]
         hz = channel.frequency_hz(state.clock)
         levels = channel.levels_db(state.master_left, state.master_right)
@@ -139,14 +148,23 @@ class Debugger:
             f"{channel.amplitude:3d}  {channel.balance_left:X}/{channel.balance_right:X}   "
         )
 
-        parts = [f"wave {channel.wave_index:2d}/{WAVE_LENGTH}"]
+        parts = [f"wave {channel.wave_index:2d}"]
         if channel.dda:
             parts.append(f"dda {channel.dda_sample:2d}")
         if index >= FIRST_NOISE_CHANNEL:
-            noise = f"on freq {channel.noise_frequency:2d}" if channel.noise_enabled else "off"
-            parts.append(f"noise {noise}")
-        parts.append(f"writes {channel.writes}")
-        detail = ("      " + "   ".join(parts))[: len(head)].ljust(len(head))
+            parts.append(
+                f"noise on {channel.noise_frequency:2d}"
+                if channel.noise_enabled
+                else "noise off"
+            )
+        lead = ("      " + "   ".join(parts))[:LEAD_WIDTH].ljust(LEAD_WIDTH)
+
+        if levels is None:
+            bars = [" " * LEVEL_WIDTH, " " * LEVEL_WIDTH]
+        else:
+            bars = [meter(db_fraction(value), LEVEL_WIDTH) for value in levels]
+        bars.append(meter(channel.amplitude / AMPLITUDE_MASK, AMP_WIDTH))
+        detail = lead + "  ".join(bars) + " " * TAIL_WIDTH
 
         return head, detail, wave_rows(channel.waveform)
 

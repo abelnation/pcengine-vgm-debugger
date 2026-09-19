@@ -3,10 +3,15 @@ import unittest
 from pcevgm.huc6280 import (
     BLOCKS,
     DEFAULT_CLOCK,
+    HBLOCKS,
+    MAX_VOLUME_STEPS,
+    METER_FLOOR_DB,
     SAMPLE_MASK,
     WAVE_LENGTH,
     WAVE_ROWS,
     HuC6280State,
+    db_fraction,
+    meter,
     note_text,
     sparkline,
     wave_rows,
@@ -143,6 +148,63 @@ class WavePlotTests(unittest.TestCase):
         self.assertEqual(heights, sorted(heights))
         self.assertEqual(heights[0], 1)
         self.assertEqual(heights[-1], WAVE_ROWS * len(BLOCKS))
+
+
+class MeterTests(unittest.TestCase):
+    def test_width_is_fixed(self):
+        for fraction in (0.0, 0.3, 0.75, 1.0):
+            self.assertEqual(len(meter(fraction, 6)), 6)
+
+    def test_empty_and_full_ends(self):
+        self.assertEqual(meter(0.0, 4), " " * 4)
+        self.assertEqual(meter(1.0, 4), HBLOCKS[-1] * 4)
+
+    def test_out_of_range_input_clamps(self):
+        self.assertEqual(meter(-5.0, 4), " " * 4)
+        self.assertEqual(meter(5.0, 4), HBLOCKS[-1] * 4)
+
+    def test_a_partial_block_shows_below_one_character(self):
+        self.assertEqual(meter(0.5, 1), HBLOCKS[3])
+
+    def test_fill_never_drops_as_the_fraction_rises(self):
+        def fill(fraction):
+            bar = meter(fraction, 6).rstrip()
+            return len(bar) * len(HBLOCKS) if not bar else (
+                (len(bar) - 1) * len(HBLOCKS) + HBLOCKS.index(bar[-1]) + 1
+            )
+
+        filled = [fill(step / 60) for step in range(61)]
+        self.assertEqual(filled, sorted(filled))
+
+
+class LevelMeterScaleTests(unittest.TestCase):
+    def test_full_volume_fills_and_the_floor_empties(self):
+        self.assertEqual(db_fraction(0.0), 1.0)
+        self.assertEqual(db_fraction(METER_FLOOR_DB), 0.0)
+        self.assertEqual(db_fraction(METER_FLOOR_DB - 20), 0.0)
+
+    def test_half_way_to_the_floor_reads_half(self):
+        self.assertAlmostEqual(db_fraction(METER_FLOOR_DB / 2), 0.5)
+
+    def test_quiet_and_loud_stay_apart(self):
+        self.assertGreater(db_fraction(-7.5) - db_fraction(-49.5), 0.5)
+
+
+class LevelStepTests(unittest.TestCase):
+    def test_off_channel_has_no_steps(self):
+        self.assertIsNone(HuC6280State().channels[0].level_steps(0x0F, 0x0F))
+
+    def test_steps_run_from_zero_to_the_maximum(self):
+        state = HuC6280State()
+        state.write(0x00, 0)
+        state.write(0x04, 0x80)  # on, amplitude 0
+        self.assertEqual(state.channels[0].level_steps(0, 0), (0, 0))
+        state.write(0x04, 0x9F)  # on, amplitude 31
+        state.write(0x05, 0xFF)
+        self.assertEqual(
+            state.channels[0].level_steps(0x0F, 0x0F),
+            (MAX_VOLUME_STEPS, MAX_VOLUME_STEPS),
+        )
 
 
 if __name__ == "__main__":

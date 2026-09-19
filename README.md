@@ -82,8 +82,11 @@ earlier run so you can remove them yourself.
     divider), `HZ` and `NOTE` (the divider as a pitch, with cents offset),
     `dB L` and `dB R` (attenuation per side), `AMP` and `BAL` (the raw
     amplitude and balance registers).
-  - Second row: the wave write index, the DDA sample while in DDA mode, the
-    noise register on channels 4 and 5, and the write count.
+  - Second row: the wave write index, the DDA sample while in DDA mode and
+    the noise register on channels 4 and 5, then a horizontal meter under each
+    of `dB L`, `dB R` and `AMP`. The level meters read empty at -60 dB and full
+    at 0 dB. The `AMP` meter tracks the raw 0 to 31 register. Partial blocks
+    give each meter character 8 steps.
   - `WAVE` — the 32-entry wave table, plotted two character rows tall. Two rows
     give 16 levels instead of the 8 a single row can show.
 - Log: the command stream around the cursor. The current command is marked `>`.
