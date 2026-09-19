@@ -52,15 +52,27 @@ Use `--out DIR` to write somewhere else.
 
 ```
 song.vgz.wavs/
-  manifest.txt     where each wave is uploaded, and an ASCII plot
-  wave-00.pcm      32 raw bytes, one per sample, values 0 to 31
-  wave-00.hex      the same bytes as text, 16 to a line
+  manifest.txt       where each wave is uploaded, and an ASCII plot
+  wave-00.pcm        32 raw bytes, one per sample, values 0 to 31
+  wave-00.hex        the same bytes as text, 16 to a line
+  wave-00.wav        one cycle, uncompressed 16-bit mono at 44100 Hz
+  wave-00.long.wav   the same cycle repeated, to preview by ear
   wave-01.pcm
-  wave-01.hex
+  ...
 ```
 
-The command never deletes files. It names any `wave-*.pcm` or `wave-*.hex` left
-over from an earlier run so you can remove them yourself.
+`wave-NN.wav` holds a single cycle, so it lasts 0.7 ms. Load it in a sampler
+and loop it. `wave-NN.long.wav` repeats that cycle at 440 Hz for 2 seconds, so
+any audio player gives you the timbre. Change it with `--preview-hz` and
+`--preview-seconds`.
+
+Both files scale the 5-bit samples around their 15.5 midpoint, so a flat table
+is silence and the range 0 to 31 fills 16-bit full scale. The preview picks the
+nearest wave sample for each output frame and does not interpolate, because the
+chip holds each sample for a fixed time. It fades 5 ms at each end.
+
+The command never deletes files. It names any leftover `wave-*` file from an
+earlier run so you can remove them yourself.
 
 ## Screen
 

@@ -44,18 +44,25 @@ def _print_dump(vgm, count: int) -> None:
         )
 
 
-def _extract_waves(vgm, out_dir) -> int:
+def _extract_waves(vgm, args) -> int:
     waves = waves_module.extract(vgm)
     if not waves:
         print("pcevgm: the track uploads no complete wave table", file=sys.stderr)
         return 1
-    report = waves_module.write_files(vgm, waves, out_dir or waves_module.folder_for(vgm.path))
+    report = waves_module.write_files(
+        vgm,
+        waves,
+        args.out or waves_module.folder_for(vgm.path),
+        args.preview_hz,
+        args.preview_seconds,
+    )
     uploads = sum(len(wave.uploads) for wave in waves)
+    suffixes = " ".join(waves_module.SUFFIXES)
     print(f"{len(waves)} waves from {uploads} uploads -> {report['directory']}")
+    print(f"each wave as [{suffixes}]")
     for wave, stem in zip(waves, report["stems"]):
         channels = ", ".join(str(c) for c in wave.channels)
-        suffixes = waves_module.PCM_SUFFIX + " " + waves_module.HEX_SUFFIX
-        print(f"  {stem}  [{suffixes}]  {len(wave.uploads):4d} uploads  ch {channels}")
+        print(f"  {stem}  {len(wave.uploads):4d} uploads  ch {channels}")
     for name in report["stale"]:
         print(f"pcevgm: left over from an earlier run: {name}", file=sys.stderr)
     return 0
@@ -86,6 +93,20 @@ def main(argv=None) -> int:
         metavar="DIR",
         help="where --extract-waves writes (default: the input path plus .wavs)",
     )
+    parser.add_argument(
+        "--preview-hz",
+        type=float,
+        default=waves_module.PREVIEW_HZ,
+        metavar="HZ",
+        help=f"pitch of the .long.wav preview (default {waves_module.PREVIEW_HZ:g})",
+    )
+    parser.add_argument(
+        "--preview-seconds",
+        type=float,
+        default=waves_module.PREVIEW_SECONDS,
+        metavar="S",
+        help=f"length of the .long.wav preview (default {waves_module.PREVIEW_SECONDS:g})",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -101,7 +122,7 @@ def main(argv=None) -> int:
         _print_dump(vgm, args.dump)
         return 0
     if args.extract_waves:
-        return _extract_waves(vgm, args.out)
+        return _extract_waves(vgm, args)
 
     if not vgm.header.huc6280_clock:
         print("pcevgm: no HuC6280 clock in the header; the chip view will stay empty",

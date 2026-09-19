@@ -1,6 +1,8 @@
 import os
+import struct
 import tempfile
 import unittest
+import wave as wave_file
 
 from pcevgm import waves
 from pcevgm.huc6280 import (
@@ -77,6 +79,30 @@ class ExtractTests(unittest.TestCase):
         self.assertEqual(waves.extract(make_vgm(upload(6, RAMP))), [])
 
 
+class AudioTests(unittest.TestCase):
+    def test_pcm16_centres_the_five_bit_range(self):
+        low, high = waves.to_pcm16(bytes([0, 31]))
+        self.assertEqual(low, -waves.WAV_PEAK)
+        self.assertEqual(high, waves.WAV_PEAK)
+
+    def test_preview_length_is_a_whole_number_of_cycles(self):
+        frames = waves.preview_frames(RAMP, hz=441.0, seconds=1.0)
+        self.assertEqual(len(frames), waves.WAV_RATE)
+        self.assertEqual(len(frames) / (waves.WAV_RATE / 441.0), 441)
+
+    def test_preview_holds_the_asked_pitch(self):
+        square = bytes([31] * 16 + [0] * 16)
+        frames = waves.preview_frames(square, hz=440.0, seconds=1.0)
+        rising = sum(1 for i in range(1, len(frames)) if frames[i - 1] < 0 <= frames[i])
+        self.assertEqual(rising, 440)
+
+    def test_preview_fades_both_ends(self):
+        frames = waves.preview_frames(RAMP)
+        self.assertEqual(frames[0], 0)
+        self.assertEqual(frames[-1], 0)
+        self.assertEqual(max(abs(value) for value in frames), waves.WAV_PEAK)
+
+
 class WriteTests(unittest.TestCase):
     def test_folder_name_appends_to_the_input_path(self):
         self.assertEqual(waves.folder_for("a/b.vgz"), "a/b.vgz.wavs")
@@ -87,6 +113,9 @@ class WriteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as out:
             report = waves.write_files(vgm, found, out)
             self.assertEqual(report["written"], ["wave-00.pcm", "wave-01.pcm"])
+            for stem in report["stems"]:
+                for suffix in waves.SUFFIXES:
+                    self.assertTrue(os.path.exists(os.path.join(out, stem + suffix)), stem + suffix)
             with open(os.path.join(out, "wave-00.pcm"), "rb") as handle:
                 self.assertEqual(handle.read(), RAMP)
             with open(os.path.join(out, "wave-01.pcm"), "rb") as handle:
@@ -109,6 +138,28 @@ class WriteTests(unittest.TestCase):
         self.assertEqual(len(lines), 2)
         self.assertEqual(lines[1].split()[0], "10")
 
+    def test_wav_holds_one_cycle_of_the_same_samples(self):
+        vgm = make_vgm(upload(0, RAMP))
+        found = waves.extract(vgm)
+        with tempfile.TemporaryDirectory() as out:
+            waves.write_files(vgm, found, out)
+            with wave_file.open(os.path.join(out, "wave-00" + waves.WAV_SUFFIX)) as handle:
+                self.assertEqual(handle.getnchannels(), 1)
+                self.assertEqual(handle.getsampwidth(), waves.WAV_WIDTH)
+                self.assertEqual(handle.getframerate(), waves.WAV_RATE)
+                self.assertEqual(handle.getnframes(), WAVE_LENGTH)
+                frames = handle.readframes(WAVE_LENGTH)
+        values = struct.unpack(f"<{WAVE_LENGTH}h", frames)
+        self.assertEqual(list(values), waves.to_pcm16(RAMP))
+
+    def test_long_wav_runs_for_the_asked_length(self):
+        vgm = make_vgm(upload(0, RAMP))
+        found = waves.extract(vgm)
+        with tempfile.TemporaryDirectory() as out:
+            waves.write_files(vgm, found, out, preview_hz=100.0, preview_seconds=0.5)
+            with wave_file.open(os.path.join(out, "wave-00" + waves.LONG_WAV_SUFFIX)) as handle:
+                self.assertEqual(handle.getnframes(), waves.WAV_RATE // 2)
+
     def test_leftover_files_from_an_earlier_run_are_reported(self):
         vgm = make_vgm(upload(0, RAMP))
         found = waves.extract(vgm)
@@ -117,8 +168,12 @@ class WriteTests(unittest.TestCase):
                 handle.write(b"old")
             with open(os.path.join(out, "wave-09.hex"), "w") as handle:
                 handle.write("00")
+            with open(os.path.join(out, "wave-09.long.wav"), "wb") as handle:
+                handle.write(b"old")
             report = waves.write_files(vgm, found, out)
-            self.assertEqual(report["stale"], ["wave-09.hex", "wave-09.pcm"])
+            self.assertEqual(
+                report["stale"], ["wave-09.hex", "wave-09.long.wav", "wave-09.pcm"]
+            )
             self.assertTrue(os.path.exists(os.path.join(out, "wave-09.pcm")))
 
     def test_manifest_names_every_wave(self):

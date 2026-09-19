@@ -8,6 +8,9 @@ of 32 samples and keeps the table as it stood at that moment.
 from __future__ import annotations
 
 import os
+import sys
+import wave as wave_file
+from array import array
 from dataclasses import dataclass, field
 
 from .huc6280 import (
@@ -15,6 +18,7 @@ from .huc6280 import (
     NUM_CHANNELS,
     REG_WAVE_DATA,
     REGISTER_MASK,
+    SAMPLE_MASK,
     WAVE_LENGTH,
     HuC6280State,
     sparkline,
@@ -24,9 +28,21 @@ from .vgm import SAMPLE_RATE, VgmFile
 
 PCM_SUFFIX = ".pcm"
 HEX_SUFFIX = ".hex"
+WAV_SUFFIX = ".wav"
+LONG_WAV_SUFFIX = ".long.wav"
+SUFFIXES = (PCM_SUFFIX, HEX_SUFFIX, WAV_SUFFIX, LONG_WAV_SUFFIX)
 MANIFEST_NAME = "manifest.txt"
 FOLDER_SUFFIX = ".wavs"
 HEX_PER_LINE = 16
+
+# Audio output. The .wav files are uncompressed 16-bit mono PCM.
+WAV_RATE = 44100
+WAV_WIDTH = 2
+WAV_PEAK = 32767
+WAV_MIDPOINT = SAMPLE_MASK / 2  # a 5-bit sample sits at 15.5 when silent
+PREVIEW_HZ = 440.0  # A4, so the preview lands in a normal listening range
+PREVIEW_SECONDS = 2.0
+FADE_SECONDS = 0.005  # stops the preview clicking at each end
 
 
 @dataclass
@@ -77,6 +93,49 @@ def extract(vgm: VgmFile) -> list:
     return waves
 
 
+def to_pcm16(samples) -> list:
+    """Centre the 5-bit samples on zero and scale them to signed 16-bit."""
+    scale = WAV_PEAK / WAV_MIDPOINT
+    return [int(round((value - WAV_MIDPOINT) * scale)) for value in samples]
+
+
+def preview_frames(samples, hz: float = PREVIEW_HZ, seconds: float = PREVIEW_SECONDS) -> list:
+    """Repeat one cycle at `hz` for about `seconds`, ending on a whole cycle.
+
+    The chip holds each wave sample for a fixed time, so the nearest sample is
+    the right one to pick. There is no interpolation.
+    """
+    cycle = to_pcm16(samples)
+    frames_per_cycle = WAV_RATE / hz
+    cycles = max(1, round(seconds * hz))
+    step = len(cycle) / frames_per_cycle
+    frames = [
+        cycle[int(index * step) % len(cycle)]
+        for index in range(round(cycles * frames_per_cycle))
+    ]
+    _fade_ends(frames)
+    return frames
+
+
+def _fade_ends(frames: list) -> None:
+    count = min(int(WAV_RATE * FADE_SECONDS), len(frames) // 2)
+    for index in range(count):
+        gain = index / count
+        frames[index] = int(frames[index] * gain)
+        frames[-1 - index] = int(frames[-1 - index] * gain)
+
+
+def write_wav(path: str, frames) -> None:
+    buffer = array("h", frames)
+    if sys.byteorder == "big":
+        buffer.byteswap()  # WAV data is always little endian
+    with wave_file.open(path, "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(WAV_WIDTH)
+        handle.setframerate(WAV_RATE)
+        handle.writeframes(buffer.tobytes())
+
+
 def hex_text(samples: bytes) -> str:
     """The same bytes as two-digit hex, HEX_PER_LINE to a line."""
     lines = [
@@ -96,13 +155,16 @@ def _time_text(sample: int) -> str:
     return f"{minutes:02d}:{seconds - minutes * 60:05.2f}"
 
 
-def _manifest(vgm: VgmFile, waves: list, names: list) -> str:
+def _manifest(vgm: VgmFile, waves: list, names: list, preview_hz, preview_seconds) -> str:
     uploads = sum(len(wave.uploads) for wave in waves)
     lines = [
         f"source   {vgm.path}",
         f"waves    {len(waves)} distinct, {uploads} uploads",
         f"format   {WAVE_LENGTH} bytes per .pcm file, one byte per sample, values 0 to 31",
         "         each .hex file holds the same bytes as text",
+        f"         each .wav file holds one cycle, {WAV_WIDTH * 8}-bit mono at {WAV_RATE} Hz",
+        f"         each .long.wav repeats that cycle at {preview_hz:g} Hz"
+        f" for {preview_seconds:g} s",
         "",
     ]
     for wave, name in zip(waves, names):
@@ -122,8 +184,14 @@ def _manifest(vgm: VgmFile, waves: list, names: list) -> str:
     return "\n".join(lines)
 
 
-def write_files(vgm: VgmFile, waves: list, out_dir: str) -> dict:
-    """Write a .pcm and a .hex file per wave, plus a manifest.
+def write_files(
+    vgm: VgmFile,
+    waves: list,
+    out_dir: str,
+    preview_hz: float = PREVIEW_HZ,
+    preview_seconds: float = PREVIEW_SECONDS,
+) -> dict:
+    """Write one file per suffix in SUFFIXES per wave, plus a manifest.
 
     Returns a short report for the caller to print.
     """
@@ -132,20 +200,26 @@ def write_files(vgm: VgmFile, waves: list, out_dir: str) -> dict:
     stems = [f"wave-{index:0{width}d}" for index in range(len(waves))]
 
     for wave, stem in zip(waves, stems):
-        with open(os.path.join(out_dir, stem + PCM_SUFFIX), "wb") as handle:
+        base = os.path.join(out_dir, stem)
+        with open(base + PCM_SUFFIX, "wb") as handle:
             handle.write(wave.samples)
-        with open(os.path.join(out_dir, stem + HEX_SUFFIX), "w", encoding="utf-8") as handle:
+        with open(base + HEX_SUFFIX, "w", encoding="utf-8") as handle:
             handle.write(hex_text(wave.samples))
+        write_wav(base + WAV_SUFFIX, to_pcm16(wave.samples))
+        write_wav(
+            base + LONG_WAV_SUFFIX,
+            preview_frames(wave.samples, preview_hz, preview_seconds),
+        )
 
     names = [stem + PCM_SUFFIX for stem in stems]
     with open(os.path.join(out_dir, MANIFEST_NAME), "w", encoding="utf-8") as handle:
-        handle.write(_manifest(vgm, waves, names))
+        handle.write(_manifest(vgm, waves, names, preview_hz, preview_seconds))
 
-    keep = {stem + suffix for stem in stems for suffix in (PCM_SUFFIX, HEX_SUFFIX)}
+    keep = {stem + suffix for stem in stems for suffix in SUFFIXES}
     keep.add(MANIFEST_NAME)
     stale = sorted(
         name
         for name in os.listdir(out_dir)
-        if name.endswith((PCM_SUFFIX, HEX_SUFFIX)) and name not in keep
+        if name.endswith(SUFFIXES) and name not in keep
     )
     return {"directory": out_dir, "stems": stems, "written": names, "stale": stale}
