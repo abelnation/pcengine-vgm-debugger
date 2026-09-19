@@ -101,15 +101,51 @@ class GroupingTests(unittest.TestCase):
         values = (0.1, 200.0, 0.5, 300.0)
         self.assertTrue(ableton.same_preset(values, values))
 
-    def test_a_time_inside_one_frame_is_the_same_time(self):
-        self.assertTrue(ableton.same_preset(
-            (0.1, 200.0, 0.5, 300.0), (0.1, 200.0 + ableton.FRAME_MS - 1, 0.5, 300.0)))
+    def test_the_allowance_grows_with_the_time(self):
+        allowances = [ableton.time_tolerance(v) for v in (0.5, 5.0, 30.0, 500.0, 5000.0)]
+        self.assertEqual(allowances, sorted(allowances))
+        self.assertEqual(allowances, [1.0, 5.0, 25.0, 200.0, 1000.0])
 
-    def test_a_long_time_compares_by_fraction(self):
+    def test_each_band_holds_to_its_upper_edge(self):
+        for below, allowed in ableton.TIME_TOLERANCE:
+            self.assertEqual(ableton.time_tolerance(below - 1e-9), allowed)
+
+    def test_past_the_last_band_the_allowance_is_a_fraction(self):
+        last = ableton.TIME_TOLERANCE[-1][0]
+        self.assertEqual(
+            ableton.time_tolerance(last * 4),
+            last * 4 * ableton.TIME_TOLERANCE_FRACTION,
+        )
+
+    def test_a_short_time_is_judged_strictly(self):
         self.assertTrue(ableton.same_preset(
-            (0.1, 1000.0, 0.5, 300.0), (0.1, 1090.0, 0.5, 300.0), tolerance=0.10))
+            (0.1, 30.0, 0.5, 300.0), (0.1, 50.0, 0.5, 300.0)))
         self.assertFalse(ableton.same_preset(
-            (0.1, 1000.0, 0.5, 300.0), (0.1, 1300.0, 0.5, 300.0), tolerance=0.10))
+            (0.1, 30.0, 0.5, 300.0), (0.1, 90.0, 0.5, 300.0)))
+
+    def test_a_long_time_is_judged_loosely(self):
+        self.assertTrue(ableton.same_preset(
+            (0.1, 900.0, 0.5, 300.0), (0.1, 1050.0, 0.5, 300.0)))
+        self.assertFalse(ableton.same_preset(
+            (0.1, 900.0, 0.5, 300.0), (0.1, 1400.0, 0.5, 300.0)))
+
+    def test_the_longer_time_sets_the_allowance(self):
+        # Symmetric: the pair is judged the same whichever way round it comes.
+        pair = ((0.1, 95.0, 0.5, 300.0), (0.1, 260.0, 0.5, 300.0))
+        self.assertEqual(
+            ableton.same_preset(*pair), ableton.same_preset(pair[1], pair[0])
+        )
+
+    def test_the_scale_widens_and_narrows_the_allowance(self):
+        pair = ((0.1, 300.0, 0.5, 300.0), (0.1, 560.0, 0.5, 300.0))
+        self.assertFalse(ableton.same_preset(*pair, tolerance=1.0))
+        self.assertTrue(ableton.same_preset(*pair, tolerance=2.0))
+
+    def test_a_zero_scale_demands_an_exact_match(self):
+        self.assertTrue(ableton.same_preset(
+            (0.1, 200.0, 0.5, 300.0), (0.1, 200.0, 0.5, 300.0), tolerance=0.0))
+        self.assertFalse(ableton.same_preset(
+            (0.1, 200.0, 0.5, 300.0), (0.1, 201.0, 0.5, 300.0), tolerance=0.0))
 
     def test_a_sustain_within_one_amplitude_step_is_the_same_level(self):
         step = 10 ** (-1.4 / 20)

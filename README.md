@@ -123,16 +123,18 @@ and the sustain in dB below the peak. Names sort by wave in Live's browser.
 
 Two settings match when their times agree and their sustains agree:
 
-- a time closer than one video frame is the same time, because that is how
-  often the driver can change anything
-- beyond that, times compare by fraction, `--preset-tolerance`, 0.10 by default
+- how far two times may differ depends on how long they are. A 20 ms gap is
+  the difference between a click and a pluck at 30 ms, and nothing at all at
+  900 ms, so the allowance climbs with the value: 1 ms below 1 ms, 5 ms below
+  10, 25 ms below 100, 200 ms below 1000, and a fifth of the value beyond that.
+  `--preset-tolerance` scales all of it, 1 by default, 0 for an exact match.
 - a sustain within 1.5 dB is the same level, because that is one step of the
   chip's own amplitude register
 
 An instrument also needs `--min-notes` notes, 2 by default, to lead a preset of
 its own. One that fires once is usually the detector's own guesswork; it still
 joins a preset when one fits. Across the sample rips this takes 1,059
-instruments down to 529 presets while 99% of notes keep one. Pass
+instruments down to 451 presets while 99% of notes keep one. Pass
 `--min-notes 1 --preset-tolerance 0` for a preset per instrument.
 
 ### Where the samples live

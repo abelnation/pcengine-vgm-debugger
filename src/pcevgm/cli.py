@@ -202,8 +202,10 @@ def main(argv=None) -> int:
         type=float,
         default=ableton_module.TOLERANCE,
         metavar="F",
-        help="how far two envelope times may differ and still share a preset,"
-        f" as a fraction (default {ableton_module.TOLERANCE:g})",
+        help="scales how far two envelope times may differ and still share a"
+        " preset; the allowance itself grows with the time, so 25 ms at 30 ms"
+        f" and 200 ms at 900 ms (default {ableton_module.TOLERANCE:g},"
+        " 0 demands an exact match)",
     )
     parser.add_argument(
         "--min-notes",

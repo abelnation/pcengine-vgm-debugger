@@ -45,11 +45,20 @@ DEFAULT_RELEASE_MS = 200.0  # for an envelope that never falls
 FRAME_MS = FRAME / 44100 * 1000
 
 # Two presets are the same sound when their times agree and their sustains
-# agree. A time closer than one video frame is the same time, because that is
-# how often the driver can change anything. A sustain within 1.5 dB is the
-# same level, because that is one step of the chip's own amplitude register.
-TOLERANCE = 0.10
+# agree. How far two times may differ depends on how long they are: a 20 ms
+# gap is the difference between a click and a pluck at 30 ms, and nothing at
+# all at 900 ms. Each entry is (below this many ms, allow this many ms).
+TIME_TOLERANCE = (
+    (1.0, 1.0),
+    (10.0, 5.0),
+    (100.0, 25.0),
+    (1000.0, 200.0),
+)
+TIME_TOLERANCE_FRACTION = 0.2  # past the last entry, a fifth of the value
+# A sustain within 1.5 dB is the same level, because that is one step of the
+# chip's own amplitude register.
 SUSTAIN_TOLERANCE_DB = DB_PER_STEP
+TOLERANCE = 1.0  # scales every allowance above
 # An instrument the detector fired once is usually its own guesswork. Across
 # the sample rips, instruments used twice or more carry 99% of all notes.
 MIN_NOTES = 2
@@ -120,8 +129,17 @@ def sample_paths(wav_path: str, library: str = "", sample_dir: str = ""):
     return relative, absolute
 
 
-def _same_time(first: float, second: float, tolerance: float) -> bool:
-    return abs(first - second) <= max(FRAME_MS, tolerance * max(first, second))
+def time_tolerance(value: float, scale: float = TOLERANCE) -> float:
+    """How far another time may sit from this one and still be the same time."""
+    for below, allowed in TIME_TOLERANCE:
+        if value < below:
+            return allowed * scale
+    return value * TIME_TOLERANCE_FRACTION * scale
+
+
+def _same_time(first: float, second: float, scale: float) -> bool:
+    # The longer of the two sets the allowance, so the test stays symmetric.
+    return abs(first - second) <= time_tolerance(max(first, second), scale)
 
 
 def _same_level(first: float, second: float, db: float) -> bool:
@@ -131,7 +149,11 @@ def _same_level(first: float, second: float, db: float) -> bool:
 
 
 def same_preset(first, second, tolerance: float = TOLERANCE) -> bool:
-    """Whether two ADSR settings would make the same preset."""
+    """Whether two ADSR settings would make the same preset.
+
+    `tolerance` scales the time allowances, so 2 merges twice as freely and 0
+    demands an exact match.
+    """
     attack, decay, sustain, release = first
     other_attack, other_decay, other_sustain, other_release = second
     return (
