@@ -40,6 +40,7 @@ pcevgm file.vgm --dump 200         # first 200 decoded commands
 pcevgm file.vgm --extract-waves    # write the wave tables to file.vgm.wavs/
 pcevgm file.vgm --notes 100        # instrument table, then the first 100 notes
 pcevgm file.vgm --tracker          # tracker grid to file.vgm.tracker.txt
+pcevgm file.vgm --ableton          # a Simpler preset per instrument
 ```
 
 ## Tracker grid
@@ -59,6 +60,45 @@ stays empty.
 
 The amplitude and noise columns are read from the chip. The note and wave
 columns come from the detector below, so they carry its guesswork.
+
+## Ableton Live presets
+
+`--ableton` writes one Simpler preset per instrument into an `ableton` folder
+inside the wave dump. Run `--extract-waves` first, since each preset points at
+a `wave-NN.wav`.
+
+```sh
+pcevgm song.vgz --extract-waves
+pcevgm song.vgz --ableton --library ~/Music/Ableton/User\ Library
+```
+
+An `.adv` file is one gzipped XML document. Rather than write that XML from
+nothing, the generator patches a template exported from Live 12.4.5, so the
+schema is one Live is known to accept. Only the sample reference, the envelope
+and the names change.
+
+The single-cycle wave files suit Simpler directly: they are tuned to C4, which
+is `RootKey 60`, so no detune is needed. The preset loops the whole 32 frames,
+because a single cycle played once lasts 3.8 ms.
+
+An envelope maps onto Simpler's ADSR by construction. A HuC6280 envelope is a
+run of amplitude steps written one per video frame, each step 1.5 dB:
+
+- the rise to the peak, if any, becomes the attack
+- the fall from the peak becomes the decay
+- the level it settles at becomes the sustain
+- carrying that same fall on down to Simpler's -70 dB floor gives the release
+
+An envelope that reaches amplitude 0 was cut by the chip, so it sustains at the
+floor and releases within a frame. Step timing comes from the median real note
+length of the instrument, since the canonical envelope carries shape but not
+duration.
+
+Two things are assumed rather than known, both worth checking on first open:
+the loop mode enum is set to 1 for a forward loop, and `OriginalCrc` is written
+as 0 to skip Live's sample checksum. Without `--library` the preset carries an
+absolute sample path and an empty relative one, so Live may ask you to locate
+the sample.
 
 ## Note, envelope and instrument analysis
 
@@ -232,6 +272,7 @@ python -m unittest discover -s tests -t .
 | `src/pcevgm/notes.py` | note detection, envelopes and instruments |
 | `src/pcevgm/keyboard.py` | the piano keyboard view of the current pitches |
 | `src/pcevgm/tracker.py` | the tracker grid and its text dump |
+| `src/pcevgm/ableton.py` | Simpler preset export, with the template in `data/` |
 | `src/pcevgm/tui.py` | curses screen and key handling |
 | `src/pcevgm/cli.py` | argument parsing and the text modes |
 | `tools/make_example.py` | builds a synthetic test file |

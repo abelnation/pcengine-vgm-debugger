@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
+from . import ableton as ableton_module
 from . import notes as notes_module
 from . import tracker as tracker_module
 from . import waves as waves_module
@@ -131,6 +133,29 @@ def _dump_tracker(vgm, path) -> int:
     return 0
 
 
+def _export_ableton(vgm, out_dir, library) -> int:
+    analysis = notes_module.analyse(vgm)
+    if not analysis.instruments:
+        print("pcevgm: the detector found no instruments", file=sys.stderr)
+        return 1
+    wave_dir = waves_module.folder_for(vgm.path)
+    if not os.path.isdir(wave_dir):
+        print(f"pcevgm: run --extract-waves first, {wave_dir} is missing", file=sys.stderr)
+        return 1
+    out_dir = out_dir or os.path.join(wave_dir, ableton_module.FOLDER)
+    written = ableton_module.write_presets(vgm, analysis, wave_dir, out_dir, library or "")
+    if not written:
+        print("pcevgm: no instrument matched an extracted wave", file=sys.stderr)
+        return 1
+    print(f"{len(written)} Simpler presets -> {out_dir}")
+    print(f"{'preset':10} {'wave':9} {'envelope':9} "
+          f"{'attack':>8} {'decay':>9} {'sustain':>8} {'release':>9}")
+    for name, wave, envelope, (attack, decay, sustain, release) in written:
+        print(f"{name:10} {wave:9} {envelope:9} "
+              f"{attack:8.1f} {decay:9.1f} {sustain:8.4f} {release:9.1f}")
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="pcevgm",
@@ -153,6 +178,19 @@ def main(argv=None) -> int:
         const=64,
         metavar="N",
         help="print the instrument table and the first N notes, then exit (default 64)",
+    )
+    parser.add_argument(
+        "--ableton",
+        nargs="?",
+        const="",
+        metavar="DIR",
+        help="write an Ableton Simpler preset per instrument, then exit"
+        " (default: the ableton folder inside the wave dump)",
+    )
+    parser.add_argument(
+        "--library",
+        metavar="PATH",
+        help="your Ableton User Library, so presets carry a relative sample path",
     )
     parser.add_argument(
         "--tracker",
@@ -210,6 +248,8 @@ def main(argv=None) -> int:
         return 0
     if args.notes is not None:
         return _print_notes(vgm, args.notes)
+    if args.ableton is not None:
+        return _export_ableton(vgm, args.ableton, args.library)
     if args.tracker is not None:
         return _dump_tracker(vgm, args.tracker)
     if args.extract_waves:

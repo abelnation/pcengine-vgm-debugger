@@ -9,3 +9,4 @@ dist/
 music/
 *.wavs/
 cfg/
+examples/*.adv
