@@ -86,7 +86,7 @@ class DescriptionTests(unittest.TestCase):
         lines = build_descriptions(vgm)
         self.assertEqual(lines[0], "select channel 2")
         self.assertIn("ch2", lines[1])
-        self.assertIn("amp=31", lines[1])
+        self.assertIn("amp=0x1F", lines[1])
 
 
 if __name__ == "__main__":

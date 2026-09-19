@@ -213,7 +213,8 @@ def describe_write(register: int, value: int, selected: int) -> str:
     if register == REG_CONTROL:
         state = "on " if value & CONTROL_ENABLE else "off"
         dda = " dda" if value & CONTROL_DDA else ""
-        return f"{prefix} {state} amp={value & AMPLITUDE_MASK}{dda}"
+        # Hex, so the log and the tracker read the same amplitude the same way.
+        return f"{prefix} {state} amp=0x{value & AMPLITUDE_MASK:02X}{dda}"
     if register == REG_BALANCE:
         return f"{prefix} balance L={value >> 4:X} R={value & NIBBLE_MASK:X}"
     if register == REG_WAVE_DATA:

@@ -281,6 +281,11 @@ class LfoControlTests(unittest.TestCase):
         )
         self.assertEqual(lfo_depth_factor(0xFE), LFO_DEPTH_FACTORS[2])
 
+    def test_the_amplitude_reads_as_hex(self):
+        self.assertEqual(describe_write(0x04, 0x9F, 0), "ch0 on  amp=0x1F")
+        self.assertEqual(describe_write(0x04, 0x80, 2), "ch2 on  amp=0x00")
+        self.assertEqual(describe_write(0x04, 0xC5, 1), "ch1 on  amp=0x05 dda")
+
     def test_written_text_names_both_fields(self):
         self.assertEqual(describe_write(0x09, 0x02, 0), "LFO on  depth 2 (x16)")
         self.assertEqual(describe_write(0x09, 0x83, 0), "LFO off depth 3 (x256)")
