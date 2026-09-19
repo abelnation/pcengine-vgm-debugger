@@ -31,7 +31,7 @@ from .huc6280 import (
 from .player import HUC6280_WRITE
 from .vgm import VgmFile
 from .waves import extract as extract_waves
-from .waves import names_by_samples, numbered_names
+from .waves import ids_by_samples, names_by_samples, numbered_names
 
 FRAME = 735  # one NTSC video frame, the rate the driver writes at
 SEMITONE_RATIO = 2 ** (1 / 12) - 1  # 5.9% of the divider
@@ -51,6 +51,7 @@ class Note:
     amps: list = field(default_factory=list)  # (sample, amplitude) at each change
     envelope: tuple = ()  # the amplitude steps, after prefix merging
     instrument: int = -1
+    wave_id: int = -1  # the wave table's number, -1 when it matched none
 
     @property
     def length(self) -> int:
@@ -227,7 +228,9 @@ def merge_prefixes(shapes) -> dict:
 def analyse(vgm: VgmFile) -> Analysis:
     """Notes, the envelopes they use, and the instruments those make."""
     notes = detect(vgm)
-    wave_names = names_by_samples(extract_waves(vgm))
+    tables = extract_waves(vgm)
+    wave_names = names_by_samples(tables)
+    wave_ids = ids_by_samples(tables)
 
     merged = merge_prefixes(envelope_of(note) for note in notes)
     envelopes, envelope_ids = [], {}
@@ -243,6 +246,7 @@ def analyse(vgm: VgmFile) -> Analysis:
             instrument_ids[key] = len(instruments)
             instruments.append((wave_names.get(note.wave, UNKNOWN_WAVE), key[1]))
         note.instrument = instrument_ids[key]
+        note.wave_id = wave_ids.get(note.wave, -1)
 
     clock = vgm.header.huc6280_clock or DEFAULT_CLOCK
     return Analysis(notes, envelopes, instruments, wave_names, clock)

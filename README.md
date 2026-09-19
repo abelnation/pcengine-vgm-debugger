@@ -46,7 +46,7 @@ pcevgm file.vgm --tracker          # tracker grid to file.vgm.tracker.txt
 
 `--tracker` writes the whole grid to a text file, defaulting to the input path
 plus `.tracker.txt`. The dump adds a time column, and always
-names the instrument, which the on-screen panel drops on a narrow terminal.
+names the wave, which the on-screen panel drops on a narrow terminal.
 
 A row is one driver tick. The driver writes once per video frame and spreads
 one tick's writes across a few sample times, so a tick is a run of write
@@ -57,7 +57,7 @@ Channels 4 and 5 are the only two that support noise. They get their own `n4`
 and `n5` columns, so a noise hit is visible while the channel's tone column
 stays empty.
 
-The amplitude and noise columns are read from the chip. The note and instrument
+The amplitude and noise columns are read from the chip. The note and wave
 columns come from the detector below, so they carry its guesswork.
 
 ## Note, envelope and instrument analysis
@@ -174,9 +174,10 @@ earlier run so you can remove them yourself.
   sounding with no new note. A channel that is off, switched to noise, or at
   zero amplitude leaves its cell empty until it sounds again. The view scrolls
   with playback and marks the current row. Press `t` to hide it.
-  - A cell reads note, amplitude in hex, then the instrument, at 174 terminal
-    columns or wider. Below that it drops the instrument, leaving note and
-    amplitude in the same places. Below 156 columns the panel hides itself.
+  - A cell reads note, amplitude in hex, then the wave number, the one the
+    `wave-NN` files carry, at 174 terminal columns or wider. Below that it
+    drops the wave number, leaving note and amplitude in the same places.
+    Below 156 columns the panel hides itself.
   - A noise cell reads the noise frequency and the amplitude, both in hex. The
     frequency shows on the row the hit starts and on any row it changes.
   - On a row where a note or a noise hit starts, the row number and that field

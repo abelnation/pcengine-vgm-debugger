@@ -174,6 +174,11 @@ def names_by_samples(waves: list) -> dict:
     return dict(zip((wave.samples for wave in waves), stem_names(len(waves))))
 
 
+def ids_by_samples(waves: list) -> dict:
+    """Map each wave table to its number, the one its file stem carries."""
+    return {wave.samples: index for index, wave in enumerate(waves)}
+
+
 def _time_text(sample: int) -> str:
     seconds = sample / SAMPLE_RATE
     minutes = int(seconds // 60)

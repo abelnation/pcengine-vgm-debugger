@@ -30,7 +30,7 @@ BLANK_VALUE = "  "
 
 ROW_LABEL = 5  # digits in the row number
 CELL_NARROW = len("C-5 1F")  # note and amplitude
-CELL_WIDE = len("C-5 1F 00")  # note, amplitude and instrument
+CELL_WIDE = len("C-5 1F 00")  # note, amplitude and wave number
 CELL_NOISE = len("1F 1B")  # noise frequency and amplitude
 NOISE_CHANNELS = tuple(range(FIRST_NOISE_CHANNEL, NUM_CHANNELS))
 
@@ -41,7 +41,7 @@ class Cell:
 
     note: str
     amplitude: str
-    instrument: str
+    wave: str  # the wave table's number, the one wave-NN carries
     onset: bool = False  # a note starts here
     level: int = -1  # the amplitude as a number, -1 when the cell is empty
 
@@ -126,7 +126,7 @@ def build(vgm: VgmFile, analysis: Analysis = None) -> list:
                 Cell(
                     note_name(channel.frequency_hz(state.clock)) if note else NO_NOTE,
                     f"{channel.amplitude:02X}",
-                    f"{note.instrument:02d}" if note else NO_VALUE,
+                    f"{note.wave_id:02d}" if note and note.wave_id >= 0 else NO_VALUE,
                     onset=note is not None,
                     level=channel.amplitude,
                 )
@@ -158,9 +158,9 @@ def build(vgm: VgmFile, analysis: Analysis = None) -> list:
 
 
 def format_cell(cell: Cell, wide: bool) -> str:
-    """Note, amplitude, then the instrument. The narrow cell drops the last."""
+    """Note, amplitude, then the wave number. The narrow cell drops the last."""
     if wide:
-        return f"{cell.note} {cell.amplitude} {cell.instrument}"
+        return f"{cell.note} {cell.amplitude} {cell.wave}"
     return f"{cell.note} {cell.amplitude}"
 
 
@@ -195,7 +195,7 @@ def row_segments(row: Row, wide: bool = False) -> list:
     for cell in row.cells:
         fields = [cell.note, cell.amplitude]
         if wide:
-            fields.append(cell.instrument)
+            fields.append(cell.wave)
         out += [
             Segment(text, cell.onset, cell.level, text in (NO_NOTE, NO_VALUE))
             for text in fields
@@ -233,7 +233,7 @@ def dump(vgm: VgmFile, rows: list, path: str) -> None:
     with open(path, "w", encoding="utf-8") as handle:
         handle.write(f"source  {vgm.path}\n")
         handle.write(f"rows    {len(rows)} ticks, one per video frame\n")
-        handle.write("cell    note, amplitude in hex, instrument\n")
+        handle.write("cell    note, amplitude in hex, wave number\n")
         handle.write(f"        {NO_NOTE} sounding with no new note,"
                      " an empty cell is silent\n")
         handle.write("noise   n4 and n5 hold the noise frequency and amplitude,"

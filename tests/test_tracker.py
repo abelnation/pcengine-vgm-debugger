@@ -7,6 +7,7 @@ from pcevgm.huc6280 import NUM_CHANNELS
 from pcevgm.notes import FRAME, analyse
 from tests.test_notes import (
     C4_DIVIDER,
+    FLAT,
     G4_DIVIDER,
     make_vgm,
     ordered,
@@ -73,18 +74,38 @@ class BuildTests(unittest.TestCase):
         _, rows = self.build(commands)
         self.assertEqual(rows[0].cells[0].amplitude, "07")
 
-    def test_an_onset_names_the_note_and_the_instrument(self):
+    def test_an_onset_names_the_note_and_the_wave(self):
         _, rows = self.build(setup(0) + play(0, 0, C4_DIVIDER, [31, 28, 0]))
         cell = rows[0].cells[0]
         self.assertEqual(cell.note, "C-4")
-        self.assertEqual(cell.instrument, "00")
+        self.assertEqual(cell.wave, "00")
         self.assertEqual(cell.amplitude, "1F")
+
+    def test_two_channels_on_one_wave_share_its_number(self):
+        commands = ordered(
+            setup(0), setup(2),
+            play(0, 0, C4_DIVIDER, [31, 0]),
+            play(2, 0, G4_DIVIDER, [20, 0]),
+        )
+        _, rows = self.build(commands)
+        self.assertEqual(rows[0].cells[0].wave, rows[0].cells[2].wave)
+
+    def test_a_second_wave_gets_the_next_number(self):
+        commands = ordered(
+            setup(0), setup(2, wave=FLAT),
+            play(0, 0, C4_DIVIDER, [31, 0]),
+            play(2, 0, G4_DIVIDER, [20, 0]),
+        )
+        _, rows = self.build(commands)
+        self.assertEqual(
+            sorted([rows[0].cells[0].wave, rows[0].cells[2].wave]), ["00", "01"]
+        )
 
     def test_a_sustained_row_carries_the_amplitude_only(self):
         _, rows = self.build(setup(0) + play(0, 0, C4_DIVIDER, [31, 28, 0]))
         cell = rows[1].cells[0]
         self.assertEqual(cell.note, tracker.NO_NOTE)
-        self.assertEqual(cell.instrument, tracker.NO_VALUE)
+        self.assertEqual(cell.wave, tracker.NO_VALUE)
         self.assertEqual(cell.amplitude, "1C")
 
     def test_a_silent_channel_leaves_its_cell_empty(self):
@@ -133,7 +154,7 @@ class BuildTests(unittest.TestCase):
             play(2, 0, G4_DIVIDER, [20, 0]),
         )
         _, rows = self.build(commands)
-        self.assertEqual(rows[0].cells[0].instrument, "00")
+        self.assertTrue(rows[0].cells[0].onset)
         self.assertTrue(rows[0].cells[2].onset)
 
     def test_row_lookup_finds_the_row_covering_a_time(self):
