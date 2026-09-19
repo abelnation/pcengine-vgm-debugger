@@ -70,6 +70,7 @@ PAIR_KEY_FIRST = 10  # one pair per channel, the channel colour as background
 PAIR_CHANNEL_FIRST = 20  # the same colours as foreground, for the CH column
 PAIR_GRAY_FIRST = 30  # a ramp for tracker amplitudes
 PAIR_DOTS = 29  # the placeholder dots, darker than the ramp floor
+PAIR_WAVE_FIRST = 50  # one pair per wave colour
 
 # The 256 colour cube keeps a grayscale ramp at 232 to 255. Starting above
 # the floor keeps the quietest step readable on a dark terminal.
@@ -77,6 +78,25 @@ GRAY_STEPS = 15
 GRAY_DARKEST = 241
 GRAY_LIGHTEST = 255
 DOTS_COLOR = 239  # just below the ramp: visible, but under every value
+
+# A hue per wave table, so a channel's column reads as one colour. Each hue is
+# an r, g, b point of the 6x6x6 colour cube, faded toward black by amplitude,
+# so an envelope still shows as it does in grey. Tracks here hold at most nine
+# waves, so the palette rarely wraps.
+WAVE_HUES = (
+    (5, 0, 0),  # red
+    (5, 3, 0),  # orange
+    (5, 5, 0),  # yellow
+    (0, 5, 0),  # green
+    (0, 5, 5),  # cyan
+    (1, 2, 5),  # blue
+    (4, 0, 5),  # violet
+    (5, 0, 3),  # magenta
+)
+# The cube holds six levels per channel, so a hue can show five fade steps
+# before they round into each other.
+TINT_STEPS = 5
+CUBE_FIRST = 16  # the 6x6x6 colour cube starts here
 
 # One colour per channel, so the keyboard and the channel table agree.
 CHANNEL_COLORS = (
@@ -398,9 +418,17 @@ class Debugger:
     def _segment_attr(self, segment) -> int:
         if segment.dots:
             return curses.color_pair(PAIR_DOTS) if self.gray else curses.color_pair(PAIR_DIM)
-        if segment.onset:
-            return 0
-        return self._level_attr(segment.level)
+        shade = self._tint_attr(segment.wave, segment.level)
+        return shade | curses.A_BOLD if segment.onset else shade
+
+    def _tint_attr(self, wave: int, level: int) -> int:
+        """Fade by amplitude, in the hue of the wave the channel is playing."""
+        if wave < 0 or not self.gray:
+            return self._level_attr(level)
+        step = min(TINT_STEPS - 1, max(0, level) * TINT_STEPS // (AMPLITUDE_MASK + 1))
+        return curses.color_pair(
+            PAIR_WAVE_FIRST + (wave % len(WAVE_HUES)) * TINT_STEPS + step
+        )
 
     def _level_attr(self, level: int) -> int:
         """Shade a sustained field by how loud it still is."""
@@ -592,6 +620,15 @@ def _init_colors() -> bool:
     if curses.COLORS < 256:
         return False
     curses.init_pair(PAIR_DOTS, DOTS_COLOR, -1)
+    for hue, channels in enumerate(WAVE_HUES):
+        for step in range(TINT_STEPS):
+            fade = (step + 1) / TINT_STEPS
+            red, green, blue = (round(value * fade) for value in channels)
+            curses.init_pair(
+                PAIR_WAVE_FIRST + hue * TINT_STEPS + step,
+                CUBE_FIRST + 36 * red + 6 * green + blue,
+                -1,
+            )
     span = GRAY_LIGHTEST - GRAY_DARKEST
     for step in range(GRAY_STEPS):
         curses.init_pair(

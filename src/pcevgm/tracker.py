@@ -43,6 +43,7 @@ class Cell:
     amplitude: str
     wave: str  # the wave table's number, the one wave-NN carries
     onset: bool = False  # a note starts here
+    wave_id: int = -1  # the wave sounding now, held for the whole note
     level: int = -1  # the amplitude as a number, -1 when the cell is empty
 
 
@@ -105,6 +106,7 @@ def build(vgm: VgmFile, analysis: Analysis = None) -> list:
     rows = []
     previous_noise = {channel: None for channel in NOISE_CHANNELS}
     live = [False] * NUM_CHANNELS  # the tone cell printed something last row
+    sounding = [-1] * NUM_CHANNELS  # the wave each channel is playing
     noise_live = {channel: False for channel in NOISE_CHANNELS}
     for index, at in enumerate(times):
         timeline.seek_sample(max(at, ends[index]))
@@ -118,16 +120,20 @@ def build(vgm: VgmFile, analysis: Analysis = None) -> list:
             if not playing or (channel.amplitude == 0 and not live[channel_index]):
                 cells.append(Cell(BLANK_NOTE, BLANK_VALUE, BLANK_VALUE))
                 live[channel_index] = False
+                sounding[channel_index] = -1
                 continue
             # Zero prints once, as the row the note lets go.
             live[channel_index] = channel.amplitude > 0
             note = onsets.get((index, channel_index))
+            if note is not None:
+                sounding[channel_index] = note.wave_id
             cells.append(
                 Cell(
                     note_name(channel.frequency_hz(state.clock)) if note else NO_NOTE,
                     f"{channel.amplitude:02X}",
                     f"{note.wave_id:02d}" if note and note.wave_id >= 0 else NO_VALUE,
                     onset=note is not None,
+                    wave_id=sounding[channel_index],
                     level=channel.amplitude,
                 )
             )
@@ -181,6 +187,7 @@ class Segment(NamedTuple):
     onset: bool
     level: int  # the amplitude, or -1 where there is none
     dots: bool  # a placeholder standing in for a value
+    wave: int  # the wave table's number, or -1 where there is none
 
 
 def row_segments(row: Row, wide: bool = False) -> list:
@@ -191,18 +198,20 @@ def row_segments(row: Row, wide: bool = False) -> list:
     field its own colour without measuring column offsets.
     """
     started = any(cell.onset for cell in row.cells + row.noise)
-    out = [Segment(f"{row.index:{ROW_LABEL}d}", started, -1, False)]
+    out = [Segment(f"{row.index:{ROW_LABEL}d}", started, -1, False, -1)]
     for cell in row.cells:
         fields = [cell.note, cell.amplitude]
         if wide:
             fields.append(cell.wave)
         out += [
-            Segment(text, cell.onset, cell.level, text in (NO_NOTE, NO_VALUE))
+            Segment(
+                text, cell.onset, cell.level, text in (NO_NOTE, NO_VALUE), cell.wave_id
+            )
             for text in fields
         ]
     for cell in row.noise:
         out += [
-            Segment(text, cell.onset, cell.level, text == NO_VALUE)
+            Segment(text, cell.onset, cell.level, text == NO_VALUE, -1)
             for text in (cell.frequency, cell.amplitude)
         ]
     return out

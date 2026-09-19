@@ -313,6 +313,14 @@ class FormatTests(unittest.TestCase):
         _, rows = self.rows()
         self.assertFalse(any(s.onset for s in tracker.row_segments(rows[1])))
 
+    def test_a_segment_carries_its_wave_number(self):
+        _, rows = self.rows()
+        struck = tracker.row_segments(rows[0], wide=True)[1:4]
+        self.assertEqual([s.wave for s in struck], [0, 0, 0])
+        self.assertEqual(tracker.row_segments(rows[0])[0].wave, -1)  # the row number
+        noise = tracker.row_segments(rows[0])[-1]
+        self.assertEqual(noise.wave, -1)
+
     def test_a_segment_carries_its_amplitude(self):
         _, rows = self.rows()
         segments = tracker.row_segments(rows[0])

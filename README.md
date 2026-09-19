@@ -180,12 +180,15 @@ earlier run so you can remove them yourself.
     Below 156 columns the panel hides itself.
   - A noise cell reads the noise frequency and the amplitude, both in hex. The
     frequency shows on the row the hit starts and on any row it changes.
-  - On a row where a note or a noise hit starts, the row number and that field
-    stay bright. A field that is only still sounding is shaded by its own
-    amplitude, brightest at 31 and nearly black at 0, so an envelope reads as
-    a fade down the column. The `...` and `..` placeholders always take one
-    grey a shade below the bottom of that ramp: visible, but under every
-    value on the row.
+  - A channel takes the colour of the wave table it is playing, so notes on
+    one wave read as a group down the panel. Within that colour a field
+    fades with its own amplitude, so an envelope still shows as a fade down
+    the column. A channel with no wave, and the noise columns, fade in grey.
+  - The row where a note or a noise hit starts is emboldened, along with its
+    row number. The `...` and `..` placeholders always take one grey a shade
+    below the bottom of the fade: visible, but under every value on the row.
+  - All of the colour needs a 256 colour terminal. On fewer colours every
+    sounding field falls back to one dim shade.
     All of this needs a 256 colour terminal; on fewer colours those fields
     fall back to one dim shade.
 
