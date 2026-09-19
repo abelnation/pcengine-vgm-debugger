@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import bisect
 from dataclasses import dataclass
+from typing import NamedTuple
 
 from .huc6280 import FIRST_NOISE_CHANNEL, NUM_CHANNELS, midi_number
 from .notes import FRAME, Analysis, analyse, instants
@@ -42,6 +43,7 @@ class Cell:
     amplitude: str
     instrument: str
     onset: bool = False  # a note starts here
+    level: int = -1  # the amplitude as a number, -1 when the cell is empty
 
 
 @dataclass
@@ -51,6 +53,7 @@ class NoiseCell:
     frequency: str
     amplitude: str
     onset: bool = False
+    level: int = -1
 
 
 @dataclass
@@ -121,6 +124,7 @@ def build(vgm: VgmFile, analysis: Analysis = None) -> list:
                     f"{channel.amplitude:02X}",
                     f"{note.instrument:02d}" if note else NO_VALUE,
                     onset=note is not None,
+                    level=channel.amplitude,
                 )
             )
         noise = []
@@ -142,6 +146,7 @@ def build(vgm: VgmFile, analysis: Analysis = None) -> list:
                     f"{channel.noise_frequency:02X}" if started else NO_VALUE,
                     f"{channel.amplitude:02X}",
                     onset=started,
+                    level=channel.amplitude,
                 )
             )
         rows.append(Row(index, at, cells, noise))
@@ -165,16 +170,24 @@ def format_row(row: Row, wide: bool = False) -> str:
     return f"{row.index:{ROW_LABEL}d} {cells} {noise}"
 
 
+class Segment(NamedTuple):
+    """One field of a row, with what a caller needs to colour it."""
+
+    text: str
+    onset: bool
+    level: int  # the amplitude, or -1 where there is none
+
+
 def row_segments(row: Row, wide: bool = False) -> list:
-    """(text, active) for every field of a row, in print order.
+    """Every field of a row, in print order.
 
     Joining the texts with one space rebuilds format_row, so a caller can give
     each field its own colour without measuring column offsets.
     """
     started = any(cell.onset for cell in row.cells + row.noise)
-    out = [(f"{row.index:{ROW_LABEL}d}", started)]
-    out += [(format_cell(cell, wide), cell.onset) for cell in row.cells]
-    out += [(format_noise(cell), cell.onset) for cell in row.noise]
+    out = [Segment(f"{row.index:{ROW_LABEL}d}", started, -1)]
+    out += [Segment(format_cell(c, wide), c.onset, c.level) for c in row.cells]
+    out += [Segment(format_noise(c), c.onset, c.level) for c in row.noise]
     return out
 
 

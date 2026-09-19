@@ -244,19 +244,31 @@ class FormatTests(unittest.TestCase):
         for wide in (False, True):
             for row in rows:
                 joined = " ".join(
-                    text for text, _ in tracker.row_segments(row, wide)
+                    segment.text for segment in tracker.row_segments(row, wide)
                 )
                 self.assertEqual(joined, tracker.format_row(row, wide))
 
     def test_only_the_row_number_and_the_new_notes_are_active(self):
         _, rows = self.rows()
         segments = tracker.row_segments(rows[0])
-        self.assertTrue(segments[0][1])  # the row number
-        self.assertEqual([active for _, active in segments[1:]].count(True), 1)
+        self.assertTrue(segments[0].onset)  # the row number
+        self.assertEqual([s.onset for s in segments[1:]].count(True), 1)
 
     def test_a_row_with_no_note_has_nothing_active(self):
         _, rows = self.rows()
-        self.assertFalse(any(active for _, active in tracker.row_segments(rows[1])))
+        self.assertFalse(any(s.onset for s in tracker.row_segments(rows[1])))
+
+    def test_a_segment_carries_its_amplitude(self):
+        _, rows = self.rows()
+        segments = tracker.row_segments(rows[0])
+        self.assertEqual(segments[0].level, -1)  # the row number has none
+        self.assertEqual(segments[1].level, 31)  # channel 0 at full
+        self.assertEqual(segments[4].level, -1)  # a silent channel
+
+    def test_the_amplitude_falls_with_the_envelope(self):
+        _, rows = self.rows()
+        levels = [tracker.row_segments(row)[1].level for row in rows]
+        self.assertEqual(levels[:3], [31, 28, 0])
 
     def test_the_dump_holds_a_line_per_row(self):
         vgm, rows = self.rows()

@@ -68,6 +68,13 @@ PAIR_KEY_WHITE = 6
 PAIR_KEY_BLACK = 7
 PAIR_KEY_FIRST = 10  # one pair per channel, the channel colour as background
 PAIR_CHANNEL_FIRST = 20  # the same colours as foreground, for the CH column
+PAIR_GRAY_FIRST = 30  # a ramp for tracker amplitudes
+
+# The 256 colour cube keeps a grayscale ramp at 232 to 255. Starting above
+# the floor keeps the quietest step readable on a dark terminal.
+GRAY_STEPS = 16
+GRAY_DARKEST = 237
+GRAY_LIGHTEST = 255
 
 # One colour per channel, so the keyboard and the channel table agree.
 CHANNEL_COLORS = (
@@ -117,6 +124,7 @@ class Debugger:
         self.wave_names = self.analysis.wave_names
         self.rows = tracker.build(vgm, self.analysis)
         self._limit = None  # columns the left hand panes may use
+        self.gray = False  # the terminal can shade amplitudes
         self.playing = False
         self.speed_index = 2
         self.writes_only = False
@@ -385,6 +393,13 @@ class Debugger:
         for line, text in enumerate(HELP_LINES):
             self._put(screen, top + 3 + line, left + 2, text, curses.A_REVERSE)
 
+    def _level_attr(self, level: int) -> int:
+        """Shade a sustained field by how loud it still is."""
+        if level < 0 or not self.gray:
+            return curses.color_pair(PAIR_DIM)
+        step = min(GRAY_STEPS - 1, level * GRAY_STEPS // (AMPLITUDE_MASK + 1))
+        return curses.color_pair(PAIR_GRAY_FIRST + step)
+
     def _tracker_mode(self, width: int):
         """None when the tracker does not fit, else True for the wide cell."""
         if width >= TRACKER_WIDE_COLUMNS:
@@ -412,11 +427,12 @@ class Debugger:
                           curses.color_pair(PAIR_CURSOR) | curses.A_BOLD)
                 continue
             # Only the row number and the fields starting a note stay bright.
+            # A field that is only still sounding shades by its amplitude.
             column = TRACKER_LEFT
-            dim = curses.color_pair(PAIR_DIM)
-            for text, active in tracker.row_segments(row, wide):
-                self._put(screen, line + 1, column, text, 0 if active else dim)
-                column += len(text) + 1
+            for segment in tracker.row_segments(row, wide):
+                self._put(screen, line + 1, column, segment.text,
+                          0 if segment.onset else self._level_attr(segment.level))
+                column += len(segment.text) + 1
 
     def _keyboard_fits(self, height: int) -> bool:
         """The keyboard gives way rather than cut a channel off the table."""
@@ -520,7 +536,7 @@ class Debugger:
         screen.timeout(POLL_MS)
         if hasattr(curses, "set_escdelay"):
             curses.set_escdelay(25)
-        _init_colors()
+        self.gray = _init_colors()
         if self.vgm.warnings:
             self.status = self.vgm.warnings[0]
         last = time.monotonic()
@@ -539,9 +555,10 @@ class Debugger:
                 return
 
 
-def _init_colors() -> None:
+def _init_colors() -> bool:
+    """Set the colour pairs up. Returns whether the amplitude ramp exists."""
     if not curses.has_colors():
-        return
+        return False
     curses.start_color()
     curses.use_default_colors()
     curses.init_pair(PAIR_TITLE, curses.COLOR_CYAN, -1)
@@ -554,6 +571,14 @@ def _init_colors() -> None:
     for index, color in enumerate(CHANNEL_COLORS):
         curses.init_pair(PAIR_KEY_FIRST + index, curses.COLOR_BLACK, color)
         curses.init_pair(PAIR_CHANNEL_FIRST + index, color, -1)
+    if curses.COLORS < 256:
+        return False
+    span = GRAY_LIGHTEST - GRAY_DARKEST
+    for step in range(GRAY_STEPS):
+        curses.init_pair(
+            PAIR_GRAY_FIRST + step, GRAY_DARKEST + step * span // (GRAY_STEPS - 1), -1
+        )
+    return True
 
 
 def run(vgm: VgmFile) -> None:
