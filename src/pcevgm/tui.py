@@ -1,0 +1,344 @@
+"""Curses front end for the VGM debugger."""
+
+from __future__ import annotations
+
+import bisect
+import curses
+import locale
+import time
+
+from .huc6280 import NUM_CHANNELS, note_text
+from .player import HUC6280_WRITE, Timeline, build_descriptions
+from .vgm import SAMPLE_RATE, VgmFile
+
+FRAME_SAMPLES = 735  # one NTSC video frame
+SPEEDS = [0.25, 0.5, 1.0, 2.0, 4.0]
+BLOCKS = "▁▂▃▄▅▆▇█"  # 8 levels; every wave cell stays visible
+POLL_MS = 20
+
+# Fallback for escape sequences curses hands over one byte at a time.
+ARROWS = {
+    ord("A"): curses.KEY_UP,
+    ord("B"): curses.KEY_DOWN,
+    ord("C"): curses.KEY_RIGHT,
+    ord("D"): curses.KEY_LEFT,
+}
+
+PAIR_TITLE = 1
+PAIR_ACTIVE = 2
+PAIR_DIM = 3
+PAIR_CURSOR = 4
+PAIR_WARN = 5
+
+HELP_LINES = [
+    "space      play / pause",
+    "left right step one video frame (735 samples)",
+    "< >        step one second",
+    ", .        step one command",
+    "p n        step one HuC6280 register write",
+    "g G        go to start / end",
+    "l          go to the loop point",
+    "[ ]        slower / faster",
+    "h          log: all commands / HuC6280 writes only",
+    "?          show or hide this help",
+    "q          quit",
+]
+
+
+def format_time(sample: int) -> str:
+    seconds = sample / SAMPLE_RATE
+    minutes = int(seconds // 60)
+    return f"{minutes:02d}:{seconds - minutes * 60:05.2f}"
+
+
+def sparkline(wave) -> str:
+    return "".join(BLOCKS[min(7, value * 8 // 32)] for value in wave)
+
+
+class Debugger:
+    def __init__(self, vgm: VgmFile) -> None:
+        self.vgm = vgm
+        self.timeline = Timeline(vgm)
+        self.descriptions = build_descriptions(vgm)
+        self.playing = False
+        self.speed_index = 2
+        self.writes_only = False
+        self.show_help = False
+        self.play_position = 0.0
+        self.status = ""
+
+    @property
+    def speed(self) -> float:
+        return SPEEDS[self.speed_index]
+
+    # --- drawing -----------------------------------------------------------
+
+    def _put(self, screen, y: int, x: int, text: str, attr: int = 0) -> None:
+        height, width = screen.getmaxyx()
+        if y < 0 or y >= height or x >= width:
+            return
+        try:
+            screen.addnstr(y, x, text, width - x, attr)
+        except curses.error:
+            pass  # writing the last cell of the last line always raises
+
+    def _draw_header(self, screen) -> int:
+        header = self.vgm.header
+        clock = self.timeline.clock
+        chips = ", ".join(f"{name} {value}" for name, value in header.clocks.items())
+        self._put(
+            screen,
+            0,
+            0,
+            f" {self.vgm.path}  VGM {header.version_text}  clock {clock} Hz ",
+            curses.color_pair(PAIR_TITLE) | curses.A_BOLD,
+        )
+        self._put(screen, 1, 1, f"chips: {chips or 'none declared'}", curses.color_pair(PAIR_DIM))
+
+        gd3 = self.vgm.gd3
+        if gd3 and (gd3.track or gd3.game or gd3.author):
+            tag = " / ".join(part for part in (gd3.game, gd3.track, gd3.author) if part)
+            self._put(screen, 2, 1, tag, curses.color_pair(PAIR_DIM))
+
+        state = "PLAY " if self.playing else "PAUSE"
+        transport = (
+            f"{state}  x{self.speed:<4g} "
+            f"{format_time(self.timeline.sample)} / {format_time(self.timeline.end_sample)}"
+            f"   sample {self.timeline.sample}"
+            f"   cmd {self.timeline.index}/{len(self.timeline.commands)}"
+        )
+        self._put(screen, 3, 1, transport, curses.A_BOLD)
+
+        width = screen.getmaxyx()[1]
+        bar_width = max(4, width - 4)
+        done = self.timeline.sample / self.timeline.end_sample if self.timeline.end_sample else 0
+        filled = int(bar_width * min(1.0, done))
+        self._put(screen, 4, 1, "█" * filled, curses.color_pair(PAIR_ACTIVE))
+        self._put(screen, 4, 1 + filled, "─" * (bar_width - filled), curses.color_pair(PAIR_DIM))
+        return 6
+
+    def _draw_channels(self, screen, top: int) -> int:
+        columns = (
+            " CH  ST   DIV     HZ      NOTE     dB L    dB R   AMP  BAL   WAVE"
+        )
+        self._put(screen, top, 0, columns, curses.A_UNDERLINE | curses.A_BOLD)
+        state = self.timeline.state
+        for index in range(NUM_CHANNELS):
+            channel = state.channels[index]
+            hz = channel.frequency_hz(state.clock)
+            levels = channel.levels_db(state.master_left, state.master_right)
+            if channel.enabled:
+                flag = "DDA" if channel.dda else "ON "
+            else:
+                flag = "off"
+            if levels is None:
+                left = right = "  --  "
+            else:
+                left, right = f"{levels[0]:6.1f}", f"{levels[1]:6.1f}"
+            noise = ""
+            if index >= 4 and channel.noise_enabled:
+                noise = f" NOISE {channel.noise_frequency:02d}"
+            wave = sparkline(channel.waveform)
+            row = (
+                f" {index:2d}  {flag}  0x{channel.frequency:03X}  {hz:8.1f}  "
+                f"{note_text(hz):<8} {left}  {right}  "
+                f"{channel.amplitude:3d}  {channel.balance_left:X}/{channel.balance_right:X}"
+                f"   {wave}{noise}"
+            )
+            attr = curses.color_pair(PAIR_ACTIVE) if channel.enabled else curses.color_pair(PAIR_DIM)
+            if index == state.selected:
+                attr |= curses.A_BOLD
+            self._put(screen, top + 1 + index, 0, row, attr)
+
+        master = (
+            f" master balance L={state.master_left:X} R={state.master_right:X}"
+            f"   selected ch{state.selected}"
+            f"   LFO freq={state.lfo_frequency} ctrl=0x{state.lfo_control:02X}"
+            f"   writes {state.writes}"
+        )
+        self._put(screen, top + 1 + NUM_CHANNELS, 0, master, curses.color_pair(PAIR_DIM))
+        return top + NUM_CHANNELS + 3
+
+    def _visible_log_indices(self, rows: int):
+        commands = self.timeline.commands
+        cursor = min(self.timeline.index, max(0, len(commands) - 1))
+        if self.writes_only:
+            pool = self.timeline.write_indices
+            if not pool:
+                return []
+            position = bisect.bisect_left(pool, cursor)
+            start = max(0, min(position - rows // 2, len(pool) - rows))
+            return pool[start : start + rows]
+        start = max(0, min(cursor - rows // 2, len(commands) - rows))
+        return range(start, min(len(commands), start + rows))
+
+    def _draw_log(self, screen, top: int, rows: int) -> None:
+        if rows <= 1:
+            return
+        label = "HuC6280 writes" if self.writes_only else "all commands"
+        self._put(screen, top, 0, f" LOG ({label})", curses.A_UNDERLINE | curses.A_BOLD)
+        commands = self.timeline.commands
+        for line, index in enumerate(self._visible_log_indices(rows - 1)):
+            command = commands[index]
+            raw = " ".join(f"{byte:02X}" for byte in command.operands[:4])
+            if len(command.operands) > 4:
+                raw += " .."
+            current = index == self.timeline.index
+            marker = ">" if current else " "
+            text = (
+                f"{marker} {index:6d}  0x{command.offset:06X}  {format_time(command.sample)}  "
+                f"{command.opcode:02X} {raw:<12}  {self.descriptions[index]}"
+            )
+            if current:
+                attr = curses.color_pair(PAIR_CURSOR) | curses.A_BOLD
+            elif command.opcode == HUC6280_WRITE:
+                attr = 0
+            else:
+                attr = curses.color_pair(PAIR_DIM)
+            self._put(screen, top + 1 + line, 0, text, attr)
+
+    def _draw_footer(self, screen, row: int) -> None:
+        if self.status:
+            self._put(screen, row, 1, self.status, curses.color_pair(PAIR_WARN))
+        else:
+            self._put(
+                screen,
+                row,
+                1,
+                "space play  arrows frame  , . cmd  p n write  l loop  ? help  q quit",
+                curses.color_pair(PAIR_DIM),
+            )
+
+    def _draw_help(self, screen) -> None:
+        height, width = screen.getmaxyx()
+        box_height = len(HELP_LINES) + 4
+        box_width = min(width - 2, 56)
+        top = max(0, (height - box_height) // 2)
+        left = max(0, (width - box_width) // 2)
+        for line in range(box_height):
+            self._put(screen, top + line, left, " " * box_width, curses.A_REVERSE)
+        self._put(screen, top + 1, left + 2, "KEYS", curses.A_REVERSE | curses.A_BOLD)
+        for line, text in enumerate(HELP_LINES):
+            self._put(screen, top + 3 + line, left + 2, text, curses.A_REVERSE)
+
+    def _draw(self, screen) -> None:
+        screen.erase()
+        height = screen.getmaxyx()[0]
+        row = self._draw_header(screen)
+        row = self._draw_channels(screen, row)
+        self._draw_log(screen, row, height - row - 1)
+        self._draw_footer(screen, height - 1)
+        if self.show_help:
+            self._draw_help(screen)
+        screen.noutrefresh()
+        curses.doupdate()
+
+    # --- input -------------------------------------------------------------
+
+    def _seek(self, sample) -> None:
+        self.timeline.seek_sample(sample)
+        self.play_position = float(self.timeline.sample)
+
+    def _handle(self, key: int) -> bool:
+        """Returns False to quit."""
+        self.status = ""
+        timeline = self.timeline
+        if key == ord("q"):
+            return False
+        if key == ord(" "):
+            self.playing = not self.playing
+        elif key == curses.KEY_RIGHT:
+            self._seek(timeline.sample + FRAME_SAMPLES)
+        elif key == curses.KEY_LEFT:
+            self._seek(timeline.sample - FRAME_SAMPLES)
+        elif key == ord(">"):
+            self._seek(timeline.sample + SAMPLE_RATE)
+        elif key == ord("<"):
+            self._seek(timeline.sample - SAMPLE_RATE)
+        elif key == ord("."):
+            timeline.step_command(1)
+            self.play_position = float(timeline.sample)
+        elif key == ord(","):
+            timeline.goto_index(timeline.index - 1)
+            self.play_position = float(timeline.sample)
+        elif key == ord("n"):
+            timeline.step_write(1)
+            self.play_position = float(timeline.sample)
+        elif key == ord("p"):
+            timeline.step_write(-1)
+            self.play_position = float(timeline.sample)
+        elif key == ord("g"):
+            timeline.goto_index(0)
+            self.play_position = 0.0
+        elif key == ord("G"):
+            self._seek(timeline.end_sample)
+        elif key == ord("l"):
+            loop = timeline.loop_sample
+            if loop is None:
+                self.status = "this file has no loop point"
+            else:
+                self._seek(loop)
+        elif key == ord("["):
+            self.speed_index = max(0, self.speed_index - 1)
+        elif key == ord("]"):
+            self.speed_index = min(len(SPEEDS) - 1, self.speed_index + 1)
+        elif key == ord("h"):
+            self.writes_only = not self.writes_only
+        elif key == ord("?"):
+            self.show_help = not self.show_help
+        return True
+
+    def _read_key(self, screen) -> int:
+        """Read one key. Reassembles arrow keys that arrive as split escapes."""
+        key = screen.getch()
+        if key != 27:
+            return key
+        screen.nodelay(True)
+        try:
+            lead = screen.getch()
+            if lead in (ord("["), ord("O")):
+                return ARROWS.get(screen.getch(), -1)
+            return -1
+        finally:
+            screen.timeout(POLL_MS)
+
+    def run(self, screen) -> None:
+        curses.curs_set(0)
+        screen.keypad(True)
+        screen.timeout(POLL_MS)
+        if hasattr(curses, "set_escdelay"):
+            curses.set_escdelay(25)
+        _init_colors()
+        if self.vgm.warnings:
+            self.status = self.vgm.warnings[0]
+        last = time.monotonic()
+        while True:
+            now = time.monotonic()
+            elapsed, last = now - last, now
+            if self.playing:
+                self.play_position += elapsed * SAMPLE_RATE * self.speed
+                self.timeline.seek_sample(self.play_position)
+                if self.timeline.sample >= self.timeline.end_sample:
+                    self.playing = False
+                    self.play_position = float(self.timeline.sample)
+            self._draw(screen)
+            key = self._read_key(screen)
+            if key != -1 and not self._handle(key):
+                return
+
+
+def _init_colors() -> None:
+    if not curses.has_colors():
+        return
+    curses.start_color()
+    curses.use_default_colors()
+    curses.init_pair(PAIR_TITLE, curses.COLOR_CYAN, -1)
+    curses.init_pair(PAIR_ACTIVE, curses.COLOR_GREEN, -1)
+    curses.init_pair(PAIR_DIM, curses.COLOR_BLUE, -1)
+    curses.init_pair(PAIR_CURSOR, curses.COLOR_YELLOW, -1)
+    curses.init_pair(PAIR_WARN, curses.COLOR_RED, -1)
+
+
+def run(vgm: VgmFile) -> None:
+    locale.setlocale(locale.LC_ALL, "")  # needed for the block characters
+    curses.wrapper(Debugger(vgm).run)
