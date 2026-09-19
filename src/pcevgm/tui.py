@@ -21,6 +21,12 @@ from .huc6280 import (
     wave_rows,
 )
 
+from . import keyboard
+from . import tracker
+from .notes import analyse
+from .player import HUC6280_WRITE, Timeline, build_descriptions
+from .vgm import SAMPLE_RATE, VgmFile
+
 # Widths of the channel table fields, so the meters land under their numbers.
 LEAD_WIDTH = 37  # everything up to the dB L column
 LEVEL_WIDTH = 6  # the dB L and dB R columns
@@ -29,13 +35,16 @@ TAIL_WIDTH = 8  # the gap, the BAL column and the gap before WAVE
 HEAD_WIDTH = LEAD_WIDTH + 2 * LEVEL_WIDTH + AMP_WIDTH + 4 + TAIL_WIDTH  # 64
 ENVELOPE_GAP = 2  # blank columns between the wave plot and the envelope plot
 ENVELOPE_LEFT = HEAD_WIDTH + plot_width(WAVE_LENGTH) + ENVELOPE_GAP
+# 12 columns is 24 envelope steps, which holds 85% of notes whole.
+ENVELOPE_WIDTH = 12
+ENVELOPE_CUT = ">"  # the envelope runs on past the panel
+TRACKER_GAP = 2
+TRACKER_LEFT = ENVELOPE_LEFT + ENVELOPE_WIDTH + TRACKER_GAP
+TRACKER_WIDTH = tracker.panel_width()
+TRACKER_MIN_COLUMNS = TRACKER_LEFT + TRACKER_WIDTH + 1
 UNKNOWN_WAVE = "wave  --"  # the table matches no complete upload
 UNKNOWN_INSTRUMENT = "inst  --"  # no note detected on this channel now
 UNKNOWN_ENVELOPE = "env  --"
-from . import keyboard
-from .notes import analyse
-from .player import HUC6280_WRITE, Timeline, build_descriptions
-from .vgm import SAMPLE_RATE, VgmFile
 
 FRAME_SAMPLES = 735  # one NTSC video frame
 SPEEDS = [0.25, 0.5, 1.0, 2.0, 4.0]
@@ -83,6 +92,7 @@ HELP_LINES = [
     "l          go to the loop point",
     "[ ]        slower / faster",
     "k          show or hide the keyboard",
+    "t          show or hide the tracker",
     "h          log: all commands / HuC6280 writes only",
     "?          show or hide this help",
     "q          quit",
@@ -104,10 +114,13 @@ class Debugger:
         # the instrument the analysis found.
         self.analysis = analyse(vgm)
         self.wave_names = self.analysis.wave_names
+        self.rows = tracker.build(vgm, self.analysis)
+        self._limit = None  # columns the left hand panes may use
         self.playing = False
         self.speed_index = 2
         self.writes_only = False
         self.show_keyboard = True
+        self.show_tracker = True
         self.show_help = False
         self.play_position = 0.0
         self.status = ""
@@ -120,6 +133,8 @@ class Debugger:
 
     def _put(self, screen, y: int, x: int, text: str, attr: int = 0) -> None:
         height, width = screen.getmaxyx()
+        if self._limit is not None:
+            width = min(width, self._limit)
         if y < 0 or y >= height or x >= width:
             return
         try:
@@ -275,12 +290,19 @@ class Debugger:
                       curses.color_pair(PAIR_CHANNEL_FIRST + index) | curses.A_BOLD)
             envelope, step = self._envelope_plot(index)
             if envelope is not None:
+                full = len(envelope[0])
+                shown = min(full, ENVELOPE_WIDTH)
                 # One character covers two steps, so the cursor does too.
-                cursor = min(step // 2, len(envelope[0]) - 1)
+                cursor = min(step // 2, shown - 1)
                 for line in range(WAVE_ROWS):
-                    self._put(screen, row + line, ENVELOPE_LEFT, envelope[line], attr)
+                    self._put(screen, row + line, ENVELOPE_LEFT,
+                              envelope[line][:shown], attr)
                     self._put(screen, row + line, ENVELOPE_LEFT + cursor,
                               envelope[line][cursor], attr | curses.A_REVERSE)
+                if full > ENVELOPE_WIDTH:
+                    self._put(screen, row + WAVE_ROWS // 2,
+                              ENVELOPE_LEFT + ENVELOPE_WIDTH - 1, ENVELOPE_CUT,
+                              curses.color_pair(PAIR_DIM))
             row += WAVE_ROWS
 
         master = (
@@ -346,7 +368,7 @@ class Debugger:
                 row,
                 1,
                 "space play  arrows frame  , . cmd  p n write  l loop"
-                "  k keys  ? help  q quit",
+                "  k keys  t tracker  ? help  q quit",
                 curses.color_pair(PAIR_DIM),
             )
 
@@ -362,19 +384,48 @@ class Debugger:
         for line, text in enumerate(HELP_LINES):
             self._put(screen, top + 3 + line, left + 2, text, curses.A_REVERSE)
 
+    def _tracker_fits(self, width: int) -> bool:
+        return width >= TRACKER_MIN_COLUMNS
+
+    def _draw_tracker(self, screen, height: int) -> None:
+        body = height - 2  # a header line and the footer
+        if body <= 0:
+            return
+        self._put(screen, 0, TRACKER_LEFT, tracker.format_header(),
+                  curses.A_UNDERLINE | curses.A_BOLD)
+        current = tracker.row_at(self.rows, self.timeline.sample)
+        first = max(0, min(current - body // 2, len(self.rows) - body))
+        for line in range(body):
+            index = first + line
+            if index >= len(self.rows):
+                break
+            row = self.rows[index]
+            if index == current:
+                attr = curses.color_pair(PAIR_CURSOR) | curses.A_BOLD
+            elif any(cell.instrument != tracker.NO_VALUE for cell in row.cells):
+                attr = 0
+            else:
+                attr = curses.color_pair(PAIR_DIM)
+            self._put(screen, line + 1, TRACKER_LEFT, tracker.format_row(row), attr)
+
     def _keyboard_fits(self, height: int) -> bool:
         """The keyboard gives way rather than cut a channel off the table."""
         return height >= HEADER_ROWS + KEYBOARD_ROWS + CHANNEL_ROWS + 1
 
     def _draw(self, screen) -> None:
         screen.erase()
-        height = screen.getmaxyx()[0]
+        height, width = screen.getmaxyx()
+        tracking = self.show_tracker and self._tracker_fits(width)
+        self._limit = TRACKER_LEFT - 1 if tracking else None
         row = self._draw_header(screen)
         if self.show_keyboard and self._keyboard_fits(height):
             row = self._draw_keyboard(screen, row)
         row = self._draw_channels(screen, row)
         self._draw_log(screen, row, height - row - 1)
         self._draw_footer(screen, height - 1)
+        self._limit = None
+        if tracking:
+            self._draw_tracker(screen, height)
         if self.show_help:
             self._draw_help(screen)
         screen.noutrefresh()
@@ -431,6 +482,8 @@ class Debugger:
             self.speed_index = min(len(SPEEDS) - 1, self.speed_index + 1)
         elif key == ord("k"):
             self.show_keyboard = not self.show_keyboard
+        elif key == ord("t"):
+            self.show_tracker = not self.show_tracker
         elif key == ord("h"):
             self.writes_only = not self.writes_only
         elif key == ord("?"):

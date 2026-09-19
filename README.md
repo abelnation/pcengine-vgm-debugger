@@ -39,7 +39,22 @@ pcevgm file.vgm --info             # header, clocks, GD3 tags
 pcevgm file.vgm --dump 200         # first 200 decoded commands
 pcevgm file.vgm --extract-waves    # write the wave tables to file.vgm.wavs/
 pcevgm file.vgm --notes 100        # instrument table, then the first 100 notes
+pcevgm file.vgm --tracker          # tracker grid to file.vgm.tracker.txt
 ```
+
+## Tracker grid
+
+`--tracker` writes the whole grid to a text file, defaulting to the input path
+plus `.tracker.txt`. The dump adds a time column and the instrument number,
+which the on-screen panel leaves out for width.
+
+A row is one driver tick. The driver writes once per video frame and spreads
+one tick's writes across a few sample times, so a tick is a run of write
+instants closer together than half a frame. Measured on the sample rips, 74% of
+gaps between instants are 1 or 2 samples and the rest sit at 733 to 738.
+
+The amplitude column is read from the chip. The note and instrument columns
+come from the detector below, so they carry its guesswork.
 
 ## Note, envelope and instrument analysis
 
@@ -138,7 +153,8 @@ earlier run so you can remove them yourself.
   - `ENVELOPE` — the envelope of the instrument sounding on the channel, one
     column per two amplitude steps, drawn the same way. The step the note has
     reached shows in reverse video. The column is blank when the detector
-    finds no note on that channel.
+    finds no note on that channel. The field stops at 12 columns, 24 steps,
+    which holds 85% of notes whole; a longer envelope ends in `>`.
 - Master line: the master balance, the selected channel and the write count.
 - LFO line: register 9 split into its two fields. `enabled` is bit 7, which
   disables the LFO and resets its source channel when set. `depth` is bits 1
@@ -146,6 +162,11 @@ earlier run so you can remove them yourself.
   reaches the pitch. The raw register byte stays on the line. The line dims
   unless the LFO is enabled at a non-zero depth.
 - Log: the command stream around the cursor. The current command is marked `>`.
+- Tracker: on the right, one row per driver tick, one column group per channel.
+  Each cell reads note and amplitude in hex. `...` means sounding with no new
+  note, `---` means silent. The view scrolls with playback and marks the
+  current row. Press `t` to hide it. It needs 144 terminal columns and hides
+  itself below that.
 
 The wave name on a channel's second row is the file stem `--extract-waves`
 writes, so `wave-03` on channel 2 means that channel holds the table in
@@ -166,6 +187,7 @@ complete upload, which includes the start of every track.
 | `l` | go to the loop point |
 | `[` `]` | slower / faster |
 | `k` | show or hide the keyboard |
+| `t` | show or hide the tracker |
 | `h` | log filter: all commands or HuC6280 writes only |
 | `?` | show or hide the key list |
 | `q` | quit |
@@ -186,6 +208,7 @@ python -m unittest discover -s tests -t .
 | `src/pcevgm/waves.py` | wave table extraction and the `.pcm` / `.hex` output |
 | `src/pcevgm/notes.py` | note detection, envelopes and instruments |
 | `src/pcevgm/keyboard.py` | the piano keyboard view of the current pitches |
+| `src/pcevgm/tracker.py` | the tracker grid and its text dump |
 | `src/pcevgm/tui.py` | curses screen and key handling |
 | `src/pcevgm/cli.py` | argument parsing and the text modes |
 | `tools/make_example.py` | builds a synthetic test file |
@@ -213,8 +236,8 @@ python -m unittest discover -s tests -t .
 - Note detection is a heuristic tuned on one game's sound driver. A driver
   that gates every note would need no heuristic; one that uses the hardware
   LFO for vibrato would defeat the pitch test.
-- The TUI replays the stream twice at load, once for the command text and
-  once for the analysis. The largest rip here takes 0.22 s.
+- The TUI replays the stream three times at load: the command text, the
+  analysis and the tracker grid. The largest rip here takes about 0.3 s.
 - Commands for other chips are decoded for length and time only.
 - Wave extraction ignores a partial pass. A track that rewrites only part of
   a table produces no new entry until the next full pass.

@@ -115,7 +115,11 @@ class Analysis:
 
 
 def instants(commands):
-    """Yield (sample, [(register, value), ...]) for each distinct sample time."""
+    """Yield (sample, [(register, value), ...]) for each distinct sample time.
+
+    The commands must already be in sample order, which a VGM stream always is
+    because its clock only moves forward.
+    """
     pending = []
     at = 0
     for command in commands:

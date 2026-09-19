@@ -24,6 +24,15 @@ def write(sample, register, value):
     return Command(0, sample, 0xB9, bytes((register, value)), 0)
 
 
+def ordered(*groups):
+    """Concatenate command groups into sample order, as a real stream is."""
+    out = []
+    for group in groups:
+        out.extend(group)
+    out.sort(key=lambda command: command.sample)
+    return out
+
+
 def make_vgm(commands):
     header = VgmHeader(
         version=0x161,
@@ -91,9 +100,11 @@ class DetectTests(unittest.TestCase):
         self.assertEqual(found[0].end, 2 * FRAME)
 
     def test_a_pitch_reload_starts_a_second_note(self):
-        commands = setup(0) + play(0, 0, C4_DIVIDER, [31, 28, 26])
-        commands += play(0, 4 * FRAME, G4_DIVIDER, [31, 28, 0])
-        found = self.detect(commands)
+        found = self.detect(ordered(
+            setup(0),
+            play(0, 0, C4_DIVIDER, [31, 28, 26]),
+            play(0, 4 * FRAME, G4_DIVIDER, [31, 28, 0]),
+        ))
         self.assertEqual([n.divider for n in found], [C4_DIVIDER, G4_DIVIDER])
 
     def test_a_pitch_nudge_does_not_start_a_note(self):
@@ -112,8 +123,11 @@ class DetectTests(unittest.TestCase):
         self.assertEqual(len(found), 1)
 
     def test_two_onsets_inside_one_frame_collapse(self):
-        commands = setup(0) + play(0, 0, C4_DIVIDER, [31])
-        commands += play(0, FRAME // 2, G4_DIVIDER, [31, 0])
+        commands = ordered(
+            setup(0),
+            play(0, 0, C4_DIVIDER, [31]),
+            play(0, FRAME // 2, G4_DIVIDER, [31, 0]),
+        )
         self.assertEqual(len(self.detect(commands)), 1)
 
     def test_noise_closes_the_note(self):
@@ -130,9 +144,11 @@ class DetectTests(unittest.TestCase):
         self.assertEqual(self.detect(commands), [])
 
     def test_channels_are_tracked_apart(self):
-        commands = setup(0) + setup(3) + play(0, 0, C4_DIVIDER, [31, 0])
-        commands += play(3, 0, G4_DIVIDER, [20, 0])
-        found = self.detect(commands)
+        found = self.detect(ordered(
+            setup(0), setup(3),
+            play(0, 0, C4_DIVIDER, [31, 0]),
+            play(3, 0, G4_DIVIDER, [20, 0]),
+        ))
         self.assertEqual(sorted(n.channel for n in found), [0, 3])
 
 
@@ -181,10 +197,13 @@ class StepTests(unittest.TestCase):
 
 class AnalysisTests(unittest.TestCase):
     def build(self):
-        commands = setup(0) + setup(1, wave=FLAT)
-        commands += play(0, 0, C4_DIVIDER, [31, 28, 0])
-        commands += play(1, 0, C4_DIVIDER, [31, 28, 0])
-        commands += play(0, 6 * FRAME, G4_DIVIDER, [31, 28, 0])
+        commands = ordered(
+            setup(0),
+            setup(1, wave=FLAT),
+            play(0, 0, C4_DIVIDER, [31, 28, 0]),
+            play(1, 0, C4_DIVIDER, [31, 28, 0]),
+            play(0, 6 * FRAME, G4_DIVIDER, [31, 28, 0]),
+        )
         return notes.analyse(make_vgm(commands))
 
     def test_one_envelope_serves_two_waves_as_two_instruments(self):

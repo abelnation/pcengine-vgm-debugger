@@ -6,6 +6,7 @@ import argparse
 import sys
 
 from . import notes as notes_module
+from . import tracker as tracker_module
 from . import waves as waves_module
 from .player import HUC6280_WRITE, build_descriptions
 from .vgm import SAMPLE_RATE, VgmError, load
@@ -115,6 +116,24 @@ def _print_notes(vgm, count: int) -> int:
     return 0
 
 
+def _dump_tracker(vgm, path) -> int:
+    analysis = notes_module.analyse(vgm)
+    rows = tracker_module.build(vgm, analysis)
+    if not rows:
+        print("pcevgm: the stream holds no driver ticks", file=sys.stderr)
+        return 1
+    path = path or vgm.path + ".tracker.txt"
+    tracker_module.dump(vgm, rows, path)
+    onsets = sum(
+        1
+        for row in rows
+        for cell in row.cells
+        if cell.instrument != tracker_module.NO_VALUE
+    )
+    print(f"{len(rows)} ticks, {onsets} note starts -> {path}")
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="pcevgm",
@@ -137,6 +156,14 @@ def main(argv=None) -> int:
         const=64,
         metavar="N",
         help="print the instrument table and the first N notes, then exit (default 64)",
+    )
+    parser.add_argument(
+        "--tracker",
+        nargs="?",
+        const="",
+        metavar="PATH",
+        help="write the tracker grid to a file, then exit"
+        " (default: the input path plus .tracker.txt)",
     )
     parser.add_argument(
         "--extract-waves",
@@ -178,6 +205,8 @@ def main(argv=None) -> int:
         return 0
     if args.notes is not None:
         return _print_notes(vgm, args.notes)
+    if args.tracker is not None:
+        return _dump_tracker(vgm, args.tracker)
     if args.extract_waves:
         return _extract_waves(vgm, args)
 

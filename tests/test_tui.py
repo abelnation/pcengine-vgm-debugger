@@ -62,6 +62,32 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual(len(plot), tui.WAVE_ROWS)
         self.assertTrue(all(len(row) == plot_width(WAVE_LENGTH) for row in plot))
 
+    def test_the_tracker_sits_after_the_capped_envelope(self):
+        self.assertEqual(
+            tui.TRACKER_LEFT,
+            tui.ENVELOPE_LEFT + tui.ENVELOPE_WIDTH + tui.TRACKER_GAP,
+        )
+        self.assertEqual(
+            tui.TRACKER_MIN_COLUMNS, tui.TRACKER_LEFT + tui.TRACKER_WIDTH + 1
+        )
+
+    def test_the_tracker_gives_way_on_a_narrow_terminal(self):
+        self.assertFalse(self.debugger._tracker_fits(tui.TRACKER_MIN_COLUMNS - 1))
+        self.assertTrue(self.debugger._tracker_fits(tui.TRACKER_MIN_COLUMNS))
+
+    def test_the_envelope_cap_is_narrower_than_the_longest_envelope(self):
+        from pcevgm.huc6280 import plot_width
+        from pcevgm.notes import ENVELOPE_MAX_STEPS
+
+        self.assertLess(tui.ENVELOPE_WIDTH, plot_width(ENVELOPE_MAX_STEPS))
+
+    def test_the_grid_has_a_row_for_every_tick(self):
+        from pcevgm import tracker
+
+        self.assertEqual(
+            len(self.debugger.rows), len(tracker.ticks(self.debugger.vgm))
+        )
+
     def test_a_channel_with_no_note_has_no_envelope_plot(self):
         self.assertEqual(self.debugger._envelope_plot(3), (None, 0))
 
