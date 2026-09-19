@@ -179,6 +179,9 @@ earlier run so you can remove them yourself.
     amplitude in the same places. Below 156 columns the panel hides itself.
   - A noise cell reads the noise frequency and the amplitude, both in hex. The
     frequency shows on the row the hit starts and on any row it changes.
+  - On a row where a note or a noise hit starts, the row number and that field
+    stay bright while the rest of the row dims, so the new events stand out
+    from the channels that are merely still sounding.
 
 The wave name on a channel's second row is the file stem `--extract-waves`
 writes, so `wave-03` on channel 2 means that channel holds the table in

@@ -407,13 +407,16 @@ class Debugger:
                 break
             row = self.rows[index]
             if index == current:
-                attr = curses.color_pair(PAIR_CURSOR) | curses.A_BOLD
-            elif any(cell.onset for cell in row.cells + row.noise):
-                attr = 0
-            else:
-                attr = curses.color_pair(PAIR_DIM)
-            self._put(screen, line + 1, TRACKER_LEFT,
-                      tracker.format_row(row, wide), attr)
+                self._put(screen, line + 1, TRACKER_LEFT,
+                          tracker.format_row(row, wide),
+                          curses.color_pair(PAIR_CURSOR) | curses.A_BOLD)
+                continue
+            # Only the row number and the fields starting a note stay bright.
+            column = TRACKER_LEFT
+            dim = curses.color_pair(PAIR_DIM)
+            for text, active in tracker.row_segments(row, wide):
+                self._put(screen, line + 1, column, text, 0 if active else dim)
+                column += len(text) + 1
 
     def _keyboard_fits(self, height: int) -> bool:
         """The keyboard gives way rather than cut a channel off the table."""

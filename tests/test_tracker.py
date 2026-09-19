@@ -221,6 +221,25 @@ class FormatTests(unittest.TestCase):
         wide = tracker.format_cell(cell, wide=True)
         self.assertTrue(wide.startswith(narrow))
 
+    def test_segments_rebuild_the_formatted_row(self):
+        _, rows = self.rows()
+        for wide in (False, True):
+            for row in rows:
+                joined = " ".join(
+                    text for text, _ in tracker.row_segments(row, wide)
+                )
+                self.assertEqual(joined, tracker.format_row(row, wide))
+
+    def test_only_the_row_number_and_the_new_notes_are_active(self):
+        _, rows = self.rows()
+        segments = tracker.row_segments(rows[0])
+        self.assertTrue(segments[0][1])  # the row number
+        self.assertEqual([active for _, active in segments[1:]].count(True), 1)
+
+    def test_a_row_with_no_note_has_nothing_active(self):
+        _, rows = self.rows()
+        self.assertFalse(any(active for _, active in tracker.row_segments(rows[1])))
+
     def test_the_dump_holds_a_line_per_row(self):
         vgm, rows = self.rows()
         with tempfile.TemporaryDirectory() as out:

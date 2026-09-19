@@ -159,6 +159,19 @@ def format_row(row: Row, wide: bool = False) -> str:
     return f"{row.index:{ROW_LABEL}d} {cells} {noise}"
 
 
+def row_segments(row: Row, wide: bool = False) -> list:
+    """(text, active) for every field of a row, in print order.
+
+    Joining the texts with one space rebuilds format_row, so a caller can give
+    each field its own colour without measuring column offsets.
+    """
+    started = any(cell.onset for cell in row.cells + row.noise)
+    out = [(f"{row.index:{ROW_LABEL}d}", started)]
+    out += [(format_cell(cell, wide), cell.onset) for cell in row.cells]
+    out += [(format_noise(cell), cell.onset) for cell in row.noise]
+    return out
+
+
 def format_header(wide: bool = False) -> str:
     width = CELL_WIDE if wide else CELL_NARROW
     names = " ".join(f"{'ch' + str(c):<{width}}" for c in range(NUM_CHANNELS))
