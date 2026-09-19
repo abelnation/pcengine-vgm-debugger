@@ -408,7 +408,7 @@ class Debugger:
             row = self.rows[index]
             if index == current:
                 attr = curses.color_pair(PAIR_CURSOR) | curses.A_BOLD
-            elif any(cell.onset for cell in row.cells):
+            elif any(cell.onset for cell in row.cells + row.noise):
                 attr = 0
             else:
                 attr = curses.color_pair(PAIR_DIM)

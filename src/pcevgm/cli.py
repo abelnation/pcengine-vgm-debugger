@@ -126,7 +126,8 @@ def _dump_tracker(vgm, path) -> int:
     path = path or vgm.path + ".tracker.txt"
     tracker_module.dump(vgm, rows, path)
     onsets = sum(1 for row in rows for cell in row.cells if cell.onset)
-    print(f"{len(rows)} ticks, {onsets} note starts -> {path}")
+    hits = sum(1 for row in rows for cell in row.noise if cell.onset)
+    print(f"{len(rows)} ticks, {onsets} note starts, {hits} noise hits -> {path}")
     return 0
 
 

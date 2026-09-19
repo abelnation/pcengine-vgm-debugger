@@ -15,6 +15,7 @@ from tests.test_notes import (
     write,
 )
 from pcevgm.huc6280 import REG_CHANNEL_SELECT, REG_NOISE
+from pcevgm.notes import FRAME
 
 
 class TickTests(unittest.TestCase):
@@ -115,6 +116,76 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(tracker.row_at(rows, FRAME), 1)
         self.assertEqual(tracker.row_at(rows, FRAME + 10), 1)
         self.assertEqual(tracker.row_at(rows, 10 ** 9), len(rows) - 1)
+
+
+def noise(channel, sample, frequency, enabled=True):
+    return [
+        write(sample, REG_CHANNEL_SELECT, channel),
+        write(sample, REG_NOISE, (0x80 if enabled else 0x00) | frequency),
+    ]
+
+
+class NoiseTests(unittest.TestCase):
+    def build(self, commands):
+        vgm = make_vgm(commands)
+        return tracker.build(vgm, analyse(vgm))
+
+    def hit(self, channel=5, frequency=0x1F):
+        return ordered(
+            setup(channel),
+            noise(channel, 0, frequency),
+            play(channel, 0, C4_DIVIDER, [31, 28, 0]),
+        )
+
+    def test_there_are_two_noise_columns(self):
+        self.assertEqual(tracker.NOISE_CHANNELS, (4, 5))
+
+    def test_a_hit_names_the_frequency_and_the_amplitude(self):
+        rows = self.build(self.hit())
+        cell = rows[0].noise[1]
+        self.assertTrue(cell.onset)
+        self.assertEqual((cell.frequency, cell.amplitude), ("1F", "1F"))
+
+    def test_a_held_hit_drops_the_frequency(self):
+        rows = self.build(self.hit())
+        cell = rows[1].noise[1]
+        self.assertFalse(cell.onset)
+        self.assertEqual((cell.frequency, cell.amplitude), (tracker.NO_VALUE, "1C"))
+
+    def test_a_hit_ends_when_the_amplitude_reaches_zero(self):
+        rows = self.build(self.hit())
+        self.assertEqual(tracker.format_noise(rows[2].noise[1]).strip(), "")
+
+    def test_a_frequency_change_starts_a_new_hit(self):
+        commands = ordered(
+            setup(5),
+            noise(5, 0, 0x1F),
+            noise(5, FRAME, 0x10),
+            play(5, 0, C4_DIVIDER, [31, 28, 26]),
+        )
+        rows = self.build(commands)
+        self.assertEqual(rows[0].noise[1].frequency, "1F")
+        self.assertTrue(rows[1].noise[1].onset)
+        self.assertEqual(rows[1].noise[1].frequency, "10")
+
+    def test_noise_off_leaves_the_column_empty(self):
+        commands = ordered(setup(5), play(5, 0, C4_DIVIDER, [31, 28, 0]))
+        rows = self.build(commands)
+        self.assertEqual(tracker.format_noise(rows[0].noise[1]).strip(), "")
+
+    def test_channel_four_has_its_own_column(self):
+        rows = self.build(self.hit(channel=4))
+        self.assertTrue(rows[0].noise[0].onset)
+        self.assertEqual(tracker.format_noise(rows[0].noise[1]).strip(), "")
+
+    def test_the_tone_column_stays_empty_while_noise_plays(self):
+        rows = self.build(self.hit())
+        self.assertEqual(tracker.format_cell(rows[0].cells[5], wide=True).strip(), "")
+
+    def test_a_noise_cell_keeps_its_width(self):
+        rows = self.build(self.hit())
+        widths = {len(tracker.format_noise(c)) for row in rows for c in row.noise}
+        self.assertEqual(widths, {tracker.CELL_NOISE})
 
 
 class FormatTests(unittest.TestCase):

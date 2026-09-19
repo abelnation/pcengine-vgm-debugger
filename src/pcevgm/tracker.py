@@ -29,6 +29,8 @@ BLANK_VALUE = "  "
 ROW_LABEL = 5  # digits in the row number
 CELL_NARROW = len("C-5 1F")  # note and amplitude
 CELL_WIDE = len("C-5 1F 00")  # note, amplitude and instrument
+CELL_NOISE = len("1F 1B")  # noise frequency and amplitude
+NOISE_CHANNELS = tuple(range(FIRST_NOISE_CHANNEL, NUM_CHANNELS))
 
 
 @dataclass
@@ -42,10 +44,20 @@ class Cell:
 
 
 @dataclass
+class NoiseCell:
+    """One noise channel on one row. Noise has a frequency, not a pitch."""
+
+    frequency: str
+    amplitude: str
+    onset: bool = False
+
+
+@dataclass
 class Row:
     index: int
     sample: int
     cells: list
+    noise: list
 
     @property
     def time_text(self) -> str:
@@ -83,6 +95,7 @@ def build(vgm: VgmFile, analysis: Analysis = None) -> list:
 
     timeline = Timeline(vgm)
     rows = []
+    previous_noise = {channel: None for channel in NOISE_CHANNELS}
     for index, at in enumerate(times):
         timeline.seek_sample(at)
         state = timeline.state
@@ -106,7 +119,26 @@ def build(vgm: VgmFile, analysis: Analysis = None) -> list:
                     onset=note is not None,
                 )
             )
-        rows.append(Row(index, at, cells))
+        noise = []
+        for channel_index in NOISE_CHANNELS:
+            channel = state.channels[channel_index]
+            playing = (
+                channel.enabled and channel.noise_enabled and channel.amplitude > 0
+            )
+            setting = (channel.noise_enabled, channel.noise_frequency)
+            started = playing and setting != previous_noise[channel_index]
+            previous_noise[channel_index] = setting if playing else None
+            if not playing:
+                noise.append(NoiseCell(BLANK_VALUE, BLANK_VALUE))
+                continue
+            noise.append(
+                NoiseCell(
+                    f"{channel.noise_frequency:02X}" if started else NO_VALUE,
+                    f"{channel.amplitude:02X}",
+                    onset=started,
+                )
+            )
+        rows.append(Row(index, at, cells, noise))
     return rows
 
 
@@ -117,20 +149,28 @@ def format_cell(cell: Cell, wide: bool) -> str:
     return f"{cell.note} {cell.amplitude}"
 
 
+def format_noise(cell: NoiseCell) -> str:
+    return f"{cell.frequency} {cell.amplitude}"
+
+
 def format_row(row: Row, wide: bool = False) -> str:
     cells = " ".join(format_cell(cell, wide) for cell in row.cells)
-    return f"{row.index:{ROW_LABEL}d} {cells}"
+    noise = " ".join(format_noise(cell) for cell in row.noise)
+    return f"{row.index:{ROW_LABEL}d} {cells} {noise}"
 
 
 def format_header(wide: bool = False) -> str:
     width = CELL_WIDE if wide else CELL_NARROW
     names = " ".join(f"{'ch' + str(c):<{width}}" for c in range(NUM_CHANNELS))
-    return f"{'row':>{ROW_LABEL}} {names}"
+    noise = " ".join(f"{'n' + str(c):<{CELL_NOISE}}" for c in NOISE_CHANNELS)
+    return f"{'row':>{ROW_LABEL}} {names} {noise}"
 
 
 def panel_width(wide: bool = False) -> int:
     cell = CELL_WIDE if wide else CELL_NARROW
-    return ROW_LABEL + 1 + NUM_CHANNELS * cell + (NUM_CHANNELS - 1)
+    tone = NUM_CHANNELS * cell + (NUM_CHANNELS - 1)
+    noise = len(NOISE_CHANNELS) * CELL_NOISE + (len(NOISE_CHANNELS) - 1)
+    return ROW_LABEL + 1 + tone + 1 + noise
 
 
 def row_at(rows: list, sample: int) -> int:
@@ -146,7 +186,9 @@ def dump(vgm: VgmFile, rows: list, path: str) -> None:
         handle.write(f"rows    {len(rows)} ticks, one per video frame\n")
         handle.write("cell    note, amplitude in hex, instrument\n")
         handle.write(f"        {NO_NOTE} sounding with no new note,"
-                     " an empty cell is silent\n\n")
+                     " an empty cell is silent\n")
+        handle.write("noise   n4 and n5 hold the noise frequency and amplitude,"
+                     " both in hex\n\n")
         handle.write("time      " + format_header(wide=True) + "\n")
         for row in rows:
             handle.write(f"{row.time_text}  {format_row(row, wide=True)}\n")
