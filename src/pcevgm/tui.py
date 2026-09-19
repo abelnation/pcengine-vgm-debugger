@@ -69,12 +69,14 @@ PAIR_KEY_BLACK = 7
 PAIR_KEY_FIRST = 10  # one pair per channel, the channel colour as background
 PAIR_CHANNEL_FIRST = 20  # the same colours as foreground, for the CH column
 PAIR_GRAY_FIRST = 30  # a ramp for tracker amplitudes
+PAIR_DOTS = 29  # the placeholder dots, darker than the ramp floor
 
 # The 256 colour cube keeps a grayscale ramp at 232 to 255. Starting above
 # the floor keeps the quietest step readable on a dark terminal.
 GRAY_STEPS = 16
 GRAY_DARKEST = 237
 GRAY_LIGHTEST = 255
+DOTS_COLOR = 235  # below the ramp, so placeholders stay out of the way
 
 # One colour per channel, so the keyboard and the channel table agree.
 CHANNEL_COLORS = (
@@ -393,6 +395,13 @@ class Debugger:
         for line, text in enumerate(HELP_LINES):
             self._put(screen, top + 3 + line, left + 2, text, curses.A_REVERSE)
 
+    def _segment_attr(self, segment) -> int:
+        if segment.dots:
+            return curses.color_pair(PAIR_DOTS) if self.gray else curses.color_pair(PAIR_DIM)
+        if segment.onset:
+            return 0
+        return self._level_attr(segment.level)
+
     def _level_attr(self, level: int) -> int:
         """Shade a sustained field by how loud it still is."""
         if level < 0 or not self.gray:
@@ -426,13 +435,22 @@ class Debugger:
                           tracker.format_row(row, wide),
                           curses.color_pair(PAIR_CURSOR) | curses.A_BOLD)
                 continue
-            # Only the row number and the fields starting a note stay bright.
-            # A field that is only still sounding shades by its amplitude.
+            # The row number and the fields starting a note stay bright, a
+            # field that is only still sounding shades by its amplitude, and a
+            # placeholder always sits back. Runs of one colour draw together.
             column = TRACKER_LEFT
+            text, attr = "", None
             for segment in tracker.row_segments(row, wide):
-                self._put(screen, line + 1, column, segment.text,
-                          0 if segment.onset else self._level_attr(segment.level))
-                column += len(segment.text) + 1
+                want = self._segment_attr(segment)
+                if want == attr:
+                    text += " " + segment.text
+                    continue
+                if attr is not None:
+                    self._put(screen, line + 1, column, text, attr)
+                    column += len(text) + 1
+                text, attr = segment.text, want
+            if attr is not None:
+                self._put(screen, line + 1, column, text, attr)
 
     def _keyboard_fits(self, height: int) -> bool:
         """The keyboard gives way rather than cut a channel off the table."""
@@ -573,6 +591,7 @@ def _init_colors() -> bool:
         curses.init_pair(PAIR_CHANNEL_FIRST + index, color, -1)
     if curses.COLORS < 256:
         return False
+    curses.init_pair(PAIR_DOTS, DOTS_COLOR, -1)
     span = GRAY_LIGHTEST - GRAY_DARKEST
     for step in range(GRAY_STEPS):
         curses.init_pair(

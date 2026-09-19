@@ -182,8 +182,10 @@ earlier run so you can remove them yourself.
   - On a row where a note or a noise hit starts, the row number and that field
     stay bright. A field that is only still sounding is shaded by its own
     amplitude, brightest at 31 and nearly black at 0, so an envelope reads as
-    a fade down the column. That needs a 256 colour terminal; on fewer
-    colours those fields fall back to one dim shade.
+    a fade down the column. The `...` and `..` placeholders always take one
+    dark grey, below the bottom of that ramp, so they stay out of the way.
+    All of this needs a 256 colour terminal; on fewer colours those fields
+    fall back to one dim shade.
 
 The wave name on a channel's second row is the file stem `--extract-waves`
 writes, so `wave-03` on channel 2 means that channel holds the table in

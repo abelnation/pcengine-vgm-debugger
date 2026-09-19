@@ -252,7 +252,26 @@ class FormatTests(unittest.TestCase):
         _, rows = self.rows()
         segments = tracker.row_segments(rows[0])
         self.assertTrue(segments[0].onset)  # the row number
-        self.assertEqual([s.onset for s in segments[1:]].count(True), 1)
+        # One channel starts a note, contributing its note and amplitude.
+        self.assertEqual([s.onset for s in segments[1:]].count(True), 2)
+
+    def test_every_value_gets_its_own_segment(self):
+        _, rows = self.rows()
+        self.assertEqual(len(tracker.row_segments(rows[0], wide=False)), 1 + 6 * 2 + 2 * 2)
+        self.assertEqual(len(tracker.row_segments(rows[0], wide=True)), 1 + 6 * 3 + 2 * 2)
+
+    def test_placeholders_are_marked_and_values_are_not(self):
+        _, rows = self.rows()
+        sustained = tracker.row_segments(rows[1], wide=True)[1:4]
+        self.assertEqual([s.dots for s in sustained], [True, False, True])
+        struck = tracker.row_segments(rows[0], wide=True)[1:4]
+        self.assertEqual([s.dots for s in struck], [False, False, False])
+
+    def test_a_blank_field_is_not_a_placeholder(self):
+        _, rows = self.rows()
+        blank = [s for s in tracker.row_segments(rows[0]) if not s.text.strip()]
+        self.assertTrue(blank)
+        self.assertFalse(any(s.dots for s in blank))
 
     def test_a_row_with_no_note_has_nothing_active(self):
         _, rows = self.rows()
@@ -263,11 +282,11 @@ class FormatTests(unittest.TestCase):
         segments = tracker.row_segments(rows[0])
         self.assertEqual(segments[0].level, -1)  # the row number has none
         self.assertEqual(segments[1].level, 31)  # channel 0 at full
-        self.assertEqual(segments[4].level, -1)  # a silent channel
+        self.assertEqual(segments[7].level, -1)  # a silent channel
 
     def test_the_amplitude_falls_with_the_envelope(self):
         _, rows = self.rows()
-        levels = [tracker.row_segments(row)[1].level for row in rows]
+        levels = [tracker.row_segments(row)[2].level for row in rows]
         self.assertEqual(levels[:3], [31, 28, 0])
 
     def test_the_dump_holds_a_line_per_row(self):

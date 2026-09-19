@@ -176,18 +176,31 @@ class Segment(NamedTuple):
     text: str
     onset: bool
     level: int  # the amplitude, or -1 where there is none
+    dots: bool  # a placeholder standing in for a value
 
 
 def row_segments(row: Row, wide: bool = False) -> list:
-    """Every field of a row, in print order.
+    """Every field of a row, one per value, in print order.
 
-    Joining the texts with one space rebuilds format_row, so a caller can give
-    each field its own colour without measuring column offsets.
+    Every field of a row is separated by exactly one space, so joining the
+    texts with one space rebuilds format_row. A caller can therefore give each
+    field its own colour without measuring column offsets.
     """
     started = any(cell.onset for cell in row.cells + row.noise)
-    out = [Segment(f"{row.index:{ROW_LABEL}d}", started, -1)]
-    out += [Segment(format_cell(c, wide), c.onset, c.level) for c in row.cells]
-    out += [Segment(format_noise(c), c.onset, c.level) for c in row.noise]
+    out = [Segment(f"{row.index:{ROW_LABEL}d}", started, -1, False)]
+    for cell in row.cells:
+        fields = [cell.note, cell.amplitude]
+        if wide:
+            fields.append(cell.instrument)
+        out += [
+            Segment(text, cell.onset, cell.level, text in (NO_NOTE, NO_VALUE))
+            for text in fields
+        ]
+    for cell in row.noise:
+        out += [
+            Segment(text, cell.onset, cell.level, text == NO_VALUE)
+            for text in (cell.frequency, cell.amplitude)
+        ]
     return out
 
 
