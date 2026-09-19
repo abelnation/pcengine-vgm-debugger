@@ -14,7 +14,7 @@ from tests.test_notes import (
     setup,
     write,
 )
-from pcevgm.huc6280 import REG_CHANNEL_SELECT, REG_NOISE
+from pcevgm.huc6280 import REG_CHANNEL_SELECT, REG_CONTROL, REG_NOISE
 from pcevgm.notes import FRAME
 
 
@@ -57,6 +57,21 @@ class BuildTests(unittest.TestCase):
             setup(0) + play(0, 0, C4_DIVIDER, [31, 28, 0])))))
         for row in rows:
             self.assertEqual(len(row.cells), NUM_CHANNELS)
+
+    def test_a_note_written_after_the_tick_starts_still_shows(self):
+        # The driver spreads one tick's writes over a few sample times.
+        commands = setup(0) + play(0, 2, C4_DIVIDER, [31, 28, 0])
+        _, rows = self.build(commands)
+        self.assertEqual(rows[0].cells[0].note, "C-4")
+        self.assertEqual(rows[0].cells[0].amplitude, "1F")
+        self.assertTrue(rows[0].cells[0].onset)
+
+    def test_a_row_reads_the_state_at_the_end_of_its_tick(self):
+        commands = setup(0) + play(0, 0, C4_DIVIDER, [31])
+        commands.append(write(10, REG_CHANNEL_SELECT, 0))
+        commands.append(write(10, REG_CONTROL, 0x80 | 7))
+        _, rows = self.build(commands)
+        self.assertEqual(rows[0].cells[0].amplitude, "07")
 
     def test_an_onset_names_the_note_and_the_instrument(self):
         _, rows = self.build(setup(0) + play(0, 0, C4_DIVIDER, [31, 28, 0]))

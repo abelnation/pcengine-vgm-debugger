@@ -98,12 +98,16 @@ def build(vgm: VgmFile, analysis: Analysis = None) -> list:
             onsets[(index, note.channel)] = note
 
     timeline = Timeline(vgm)
+    # A tick spans every instant up to the next one, and the driver spreads its
+    # writes across them. Reading the state at the tick's first sample would
+    # miss the rest, so each row reads the state at the tick's last sample.
+    ends = [start - 1 for start in times[1:]] + [timeline.end_sample]
     rows = []
     previous_noise = {channel: None for channel in NOISE_CHANNELS}
     live = [False] * NUM_CHANNELS  # the tone cell printed something last row
     noise_live = {channel: False for channel in NOISE_CHANNELS}
     for index, at in enumerate(times):
-        timeline.seek_sample(at)
+        timeline.seek_sample(max(at, ends[index]))
         state = timeline.state
         cells = []
         for channel_index in range(NUM_CHANNELS):
