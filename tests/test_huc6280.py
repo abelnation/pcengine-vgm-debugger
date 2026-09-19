@@ -6,6 +6,8 @@ from pcevgm.huc6280 import (
     HBLOCKS,
     MAX_VOLUME_STEPS,
     METER_FLOOR_DB,
+    PLOT_LEVELS,
+    SCAN_LINES,
     SAMPLE_MASK,
     WAVE_LENGTH,
     WAVE_ROWS,
@@ -118,6 +120,16 @@ class LevelTests(unittest.TestCase):
         self.assertAlmostEqual(right, 0.0)
 
 
+def plot_level(value):
+    """Read a one-sample plot back as a level, 0 at the bottom."""
+    rows = wave_rows([value])
+    marked = [(row, line[0]) for row, line in enumerate(rows) if line[0] != " "]
+    assert len(marked) == 1, marked
+    row, glyph = marked[0]
+    within = len(SCAN_LINES) - 1 - SCAN_LINES.index(glyph)
+    return PLOT_LEVELS - 1 - (row * len(SCAN_LINES) + within)
+
+
 class WavePlotTests(unittest.TestCase):
     def test_shape_is_rows_by_wave_length(self):
         rows = wave_rows([0] * WAVE_LENGTH)
@@ -125,32 +137,37 @@ class WavePlotTests(unittest.TestCase):
         for row in rows:
             self.assertEqual(len(row), WAVE_LENGTH)
 
-    def test_lowest_sample_marks_only_the_bottom_row(self):
-        top, bottom = wave_rows([0] * WAVE_LENGTH)
-        self.assertEqual(top[0], " ")
-        self.assertEqual(bottom[0], BLOCKS[0])
+    def test_a_line_leaves_one_mark_per_column(self):
+        rows = wave_rows(list(range(WAVE_LENGTH)))
+        for column in range(WAVE_LENGTH):
+            marks = [row[column] for row in rows if row[column] != " "]
+            self.assertEqual(len(marks), 1, column)
 
-    def test_highest_sample_fills_every_row(self):
-        for row in wave_rows([SAMPLE_MASK] * WAVE_LENGTH):
-            self.assertEqual(row[0], BLOCKS[-1])
+    def test_the_lowest_sample_sits_at_the_bottom(self):
+        top, bottom = wave_rows([0])
+        self.assertEqual(top, " ")
+        self.assertEqual(bottom, SCAN_LINES[0])
+        self.assertEqual(plot_level(0), 0)
 
-    def test_two_rows_resolve_twice_as_many_levels(self):
-        column = [wave_rows([value] * WAVE_LENGTH) for value in range(SAMPLE_MASK + 1)]
-        distinct = {(rows[0][0], rows[1][0]) for rows in column}
-        self.assertEqual(len(distinct), WAVE_ROWS * len(BLOCKS))
-        self.assertEqual(len({sparkline([v])[0] for v in range(SAMPLE_MASK + 1)}), len(BLOCKS))
+    def test_the_highest_sample_sits_at_the_top(self):
+        top, bottom = wave_rows([SAMPLE_MASK])
+        self.assertEqual(top, SCAN_LINES[-1])
+        self.assertEqual(bottom, " ")
+        self.assertEqual(plot_level(SAMPLE_MASK), PLOT_LEVELS - 1)
 
-    def test_height_never_drops_as_the_sample_rises(self):
-        def height(value):
-            top, bottom = wave_rows([value])
-            below = 0 if bottom == " " else BLOCKS.index(bottom) + 1
-            above = 0 if top == " " else BLOCKS.index(top) + 1
-            return below + above
+    def test_every_level_is_reachable(self):
+        levels = {plot_level(value) for value in range(SAMPLE_MASK + 1)}
+        self.assertEqual(levels, set(range(PLOT_LEVELS)))
 
-        heights = [height(value) for value in range(SAMPLE_MASK + 1)]
-        self.assertEqual(heights, sorted(heights))
-        self.assertEqual(heights[0], 1)
-        self.assertEqual(heights[-1], WAVE_ROWS * len(BLOCKS))
+    def test_the_level_never_drops_as_the_sample_rises(self):
+        levels = [plot_level(value) for value in range(SAMPLE_MASK + 1)]
+        self.assertEqual(levels, sorted(levels))
+
+    def test_the_sparkline_still_fills(self):
+        self.assertEqual(
+            len({sparkline([v])[0] for v in range(SAMPLE_MASK + 1)}), len(BLOCKS)
+        )
+        self.assertEqual(sparkline([SAMPLE_MASK]), BLOCKS[-1])
 
 
 class MeterTests(unittest.TestCase):

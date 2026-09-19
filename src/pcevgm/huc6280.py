@@ -64,9 +64,11 @@ NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 def lfo_depth_factor(depth: int) -> int:
     """The pitch multiplier a LFO depth code selects."""
     return LFO_DEPTH_FACTORS[depth & LFO_DEPTH_MASK]
-BLOCKS = "▁▂▃▄▅▆▇█"  # 8 levels; every wave cell stays visible
+BLOCKS = "▁▂▃▄▅▆▇█"  # 8 fill levels, for the one-row sparkline
 HBLOCKS = "▏▎▍▌▋▊▉█"  # the same 8 steps lying down, for meters
-WAVE_ROWS = 2  # character rows the two-row plot uses
+SCAN_LINES = "⎽⎼─⎻⎺"  # five line heights inside one cell, low to high
+WAVE_ROWS = 2  # character rows a plot uses
+PLOT_LEVELS = WAVE_ROWS * len(SCAN_LINES)  # 10
 
 # Amplitude steps are 1.5 dB. Balance steps are 3.0 dB, so two amplitude units.
 BALANCE_WEIGHT = 2
@@ -255,22 +257,19 @@ def sparkline(wave) -> str:
 
 
 def wave_rows(wave):
-    """Draw a wave table WAVE_ROWS characters tall. Returns one string per row.
+    """Draw a sample series as a line, WAVE_ROWS characters tall.
 
-    Stacking rows doubles the levels a plot can show: WAVE_ROWS of 2 gives 16.
-    Row 0 is the top of the plot.
+    One column per sample, one mark per column. A filled bar would read as an
+    area chart; these characters draw the curve itself. Each cell carries five
+    line heights, so WAVE_ROWS of 2 resolves PLOT_LEVELS steps. Row 0 is the
+    top of the plot.
     """
-    levels = len(BLOCKS)
-    rows = [[] for _ in range(WAVE_ROWS)]
-    for value in wave:
-        # Level 1 is the shortest bar, so a zero sample still leaves a mark.
-        level = value * WAVE_ROWS * levels // (SAMPLE_MASK + 1) + 1
-        for row in range(WAVE_ROWS):
-            floor = (WAVE_ROWS - 1 - row) * levels  # how much the rows below hold
-            rows[row].append(
-                " " if level <= floor
-                else BLOCKS[min(levels, level - floor) - 1]
-            )
+    heights = len(SCAN_LINES)
+    rows = [[" "] * len(wave) for _ in range(WAVE_ROWS)]
+    for column, value in enumerate(wave):
+        level = min(PLOT_LEVELS - 1, value * PLOT_LEVELS // (SAMPLE_MASK + 1))
+        line = PLOT_LEVELS - 1 - level  # counting down from the top
+        rows[line // heights][column] = SCAN_LINES[heights - 1 - line % heights]
     return ["".join(row) for row in rows]
 
 

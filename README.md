@@ -129,8 +129,9 @@ earlier run so you can remove them yourself.
     of `dB L`, `dB R` and `AMP`. The level meters read empty at -60 dB and full
     at 0 dB. The `AMP` meter tracks the raw 0 to 31 register. Partial blocks
     give each meter character 8 steps.
-  - `WAVE` — the 32-entry wave table, plotted two character rows tall. Two rows
-    give 16 levels instead of the 8 a single row can show.
+  - `WAVE` — the 32-entry wave table, drawn as a line two character rows tall.
+    Each cell carries five line heights, so two rows resolve ten levels. One
+    column per sample, one mark per column.
   - `ENVELOPE` — the envelope of the instrument sounding on the channel, one
     column per amplitude step, drawn the same way. The step the note has
     reached shows in reverse video. The column is blank when the detector
@@ -199,6 +200,8 @@ python -m unittest discover -s tests -t .
   `NOTE` column carries the cents offset.
 - A channel counts as sounding on the keyboard above -40 dB. At -60 dB the
   board fills with channels parked on divider 0 at 27 Hz.
+- The wave and envelope plots use `U+23BA` to `U+23BD` alongside `U+2500`.
+  A font without those four scan-line glyphs will show boxes.
 - The keyboard needs about 74 terminal columns and 29 rows. The envelope
   plot starts at column 98, so the channel table wants about 130 columns to
   show a long envelope whole.
