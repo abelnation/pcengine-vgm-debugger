@@ -45,8 +45,8 @@ pcevgm file.vgm --tracker          # tracker grid to file.vgm.tracker.txt
 ## Tracker grid
 
 `--tracker` writes the whole grid to a text file, defaulting to the input path
-plus `.tracker.txt`. The dump adds a time column and the instrument number,
-which the on-screen panel leaves out for width.
+plus `.tracker.txt`. The dump adds a time column, and always
+names the instrument, which the on-screen panel drops on a narrow terminal.
 
 A row is one driver tick. The driver writes once per video frame and spreads
 one tick's writes across a few sample times, so a tick is a run of write
@@ -163,10 +163,11 @@ earlier run so you can remove them yourself.
   unless the LFO is enabled at a non-zero depth.
 - Log: the command stream around the cursor. The current command is marked `>`.
 - Tracker: on the right, one row per driver tick, one column group per channel.
-  Each cell reads note and amplitude in hex. `...` means sounding with no new
-  note, `---` means silent. The view scrolls with playback and marks the
-  current row. Press `t` to hide it. It needs 144 terminal columns and hides
-  itself below that.
+  `...` means sounding with no new note, `---` means silent. The view scrolls
+  with playback and marks the current row. Press `t` to hide it.
+  - A cell reads note, instrument and amplitude in hex at 162 terminal columns
+    or wider. Below that it drops the instrument and reads note and amplitude.
+    Below 144 columns the panel hides itself.
 
 The wave name on a channel's second row is the file stem `--extract-waves`
 writes, so `wave-03` on channel 2 means that channel holds the table in

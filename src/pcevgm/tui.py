@@ -40,8 +40,9 @@ ENVELOPE_WIDTH = 12
 ENVELOPE_CUT = ">"  # the envelope runs on past the panel
 TRACKER_GAP = 2
 TRACKER_LEFT = ENVELOPE_LEFT + ENVELOPE_WIDTH + TRACKER_GAP
-TRACKER_WIDTH = tracker.panel_width()
-TRACKER_MIN_COLUMNS = TRACKER_LEFT + TRACKER_WIDTH + 1
+# The panel drops the instrument column when the terminal cannot hold it.
+TRACKER_NARROW_COLUMNS = TRACKER_LEFT + tracker.panel_width() + 1
+TRACKER_WIDE_COLUMNS = TRACKER_LEFT + tracker.panel_width(wide=True) + 1
 UNKNOWN_WAVE = "wave  --"  # the table matches no complete upload
 UNKNOWN_INSTRUMENT = "inst  --"  # no note detected on this channel now
 UNKNOWN_ENVELOPE = "env  --"
@@ -384,14 +385,19 @@ class Debugger:
         for line, text in enumerate(HELP_LINES):
             self._put(screen, top + 3 + line, left + 2, text, curses.A_REVERSE)
 
-    def _tracker_fits(self, width: int) -> bool:
-        return width >= TRACKER_MIN_COLUMNS
+    def _tracker_mode(self, width: int):
+        """None when the tracker does not fit, else True for the wide cell."""
+        if width >= TRACKER_WIDE_COLUMNS:
+            return True
+        if width >= TRACKER_NARROW_COLUMNS:
+            return False
+        return None
 
-    def _draw_tracker(self, screen, height: int) -> None:
+    def _draw_tracker(self, screen, height: int, wide: bool) -> None:
         body = height - 2  # a header line and the footer
         if body <= 0:
             return
-        self._put(screen, 0, TRACKER_LEFT, tracker.format_header(),
+        self._put(screen, 0, TRACKER_LEFT, tracker.format_header(wide),
                   curses.A_UNDERLINE | curses.A_BOLD)
         current = tracker.row_at(self.rows, self.timeline.sample)
         first = max(0, min(current - body // 2, len(self.rows) - body))
@@ -406,7 +412,8 @@ class Debugger:
                 attr = 0
             else:
                 attr = curses.color_pair(PAIR_DIM)
-            self._put(screen, line + 1, TRACKER_LEFT, tracker.format_row(row), attr)
+            self._put(screen, line + 1, TRACKER_LEFT,
+                      tracker.format_row(row, wide), attr)
 
     def _keyboard_fits(self, height: int) -> bool:
         """The keyboard gives way rather than cut a channel off the table."""
@@ -415,8 +422,8 @@ class Debugger:
     def _draw(self, screen) -> None:
         screen.erase()
         height, width = screen.getmaxyx()
-        tracking = self.show_tracker and self._tracker_fits(width)
-        self._limit = TRACKER_LEFT - 1 if tracking else None
+        mode = self._tracker_mode(width) if self.show_tracker else None
+        self._limit = None if mode is None else TRACKER_LEFT - 1
         row = self._draw_header(screen)
         if self.show_keyboard and self._keyboard_fits(height):
             row = self._draw_keyboard(screen, row)
@@ -424,8 +431,8 @@ class Debugger:
         self._draw_log(screen, row, height - row - 1)
         self._draw_footer(screen, height - 1)
         self._limit = None
-        if tracking:
-            self._draw_tracker(screen, height)
+        if mode is not None:
+            self._draw_tracker(screen, height, mode)
         if self.show_help:
             self._draw_help(screen)
         screen.noutrefresh()

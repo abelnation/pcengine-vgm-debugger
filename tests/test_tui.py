@@ -1,6 +1,6 @@
 import unittest
 
-from pcevgm import tui
+from pcevgm import tracker, tui
 from pcevgm.huc6280 import NUM_CHANNELS, WAVE_LENGTH, plot_width
 from pcevgm.vgm import Command, Gd3, VgmFile, VgmHeader
 
@@ -68,12 +68,24 @@ class LayoutTests(unittest.TestCase):
             tui.ENVELOPE_LEFT + tui.ENVELOPE_WIDTH + tui.TRACKER_GAP,
         )
         self.assertEqual(
-            tui.TRACKER_MIN_COLUMNS, tui.TRACKER_LEFT + tui.TRACKER_WIDTH + 1
+            tui.TRACKER_NARROW_COLUMNS,
+            tui.TRACKER_LEFT + tracker.panel_width() + 1,
+        )
+        self.assertEqual(
+            tui.TRACKER_WIDE_COLUMNS,
+            tui.TRACKER_LEFT + tracker.panel_width(wide=True) + 1,
         )
 
     def test_the_tracker_gives_way_on_a_narrow_terminal(self):
-        self.assertFalse(self.debugger._tracker_fits(tui.TRACKER_MIN_COLUMNS - 1))
-        self.assertTrue(self.debugger._tracker_fits(tui.TRACKER_MIN_COLUMNS))
+        mode = self.debugger._tracker_mode
+        self.assertIsNone(mode(tui.TRACKER_NARROW_COLUMNS - 1))
+        self.assertIs(mode(tui.TRACKER_NARROW_COLUMNS), False)
+
+    def test_the_tracker_names_the_instrument_when_there_is_room(self):
+        mode = self.debugger._tracker_mode
+        self.assertIs(mode(tui.TRACKER_WIDE_COLUMNS - 1), False)
+        self.assertIs(mode(tui.TRACKER_WIDE_COLUMNS), True)
+        self.assertGreater(tui.TRACKER_WIDE_COLUMNS, tui.TRACKER_NARROW_COLUMNS)
 
     def test_the_envelope_cap_is_narrower_than_the_longest_envelope(self):
         from pcevgm.huc6280 import plot_width
@@ -82,8 +94,6 @@ class LayoutTests(unittest.TestCase):
         self.assertLess(tui.ENVELOPE_WIDTH, plot_width(ENVELOPE_MAX_STEPS))
 
     def test_the_grid_has_a_row_for_every_tick(self):
-        from pcevgm import tracker
-
         self.assertEqual(
             len(self.debugger.rows), len(tracker.ticks(self.debugger.vgm))
         )
