@@ -183,7 +183,8 @@ earlier run so you can remove them yourself.
     stay bright. A field that is only still sounding is shaded by its own
     amplitude, brightest at 31 and nearly black at 0, so an envelope reads as
     a fade down the column. The `...` and `..` placeholders always take one
-    dark grey, below the bottom of that ramp, so they stay out of the way.
+    grey a shade below the bottom of that ramp: visible, but under every
+    value on the row.
     All of this needs a 256 colour terminal; on fewer colours those fields
     fall back to one dim shade.
 

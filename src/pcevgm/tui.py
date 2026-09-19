@@ -73,10 +73,10 @@ PAIR_DOTS = 29  # the placeholder dots, darker than the ramp floor
 
 # The 256 colour cube keeps a grayscale ramp at 232 to 255. Starting above
 # the floor keeps the quietest step readable on a dark terminal.
-GRAY_STEPS = 16
-GRAY_DARKEST = 237
+GRAY_STEPS = 15
+GRAY_DARKEST = 241
 GRAY_LIGHTEST = 255
-DOTS_COLOR = 235  # below the ramp, so placeholders stay out of the way
+DOTS_COLOR = 239  # just below the ramp: visible, but under every value
 
 # One colour per channel, so the keyboard and the channel table agree.
 CHANNEL_COLORS = (
