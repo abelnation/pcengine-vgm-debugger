@@ -101,17 +101,21 @@ Every wave gets the same handful of envelopes, named so you can reach for one:
 | name | attack | decay | sustain | release | what it is |
 | --- | --- | --- | --- | --- | --- |
 | `hold` | 0.1 | none | full | 50 | the raw oscillator, key down means tone |
-| `stab` | 0.1 | 60 | silence | 20 | near the tenth percentile decay, percussive |
-| `pluck` | 0.1 | 180 | silence | 30 | the median decay of the rips |
-| `decay` | 0.1 | 800 | silence | 50 | near the ninetieth percentile decay |
+| `stab` | 0.1 | 300 | silence | 20 | percussive, cut off the moment the key lifts |
+| `pluck` | 0.1 | 300 | silence | 30 | percussive, with a touch of release |
+| `decay` | 0.1 | 5000 | silence | 50 | a held piano key, ringing out |
 | `tail` | 0.1 | 200 | -12 dB | 2000 | drops fast, then rings out |
 | `swell` | 300 | 500 | -6 dB | 400 | the slow attacks, whose longest measured 440 ms |
 
-Times are milliseconds. The values sit on the percentiles of the envelopes the
-sample rips actually play, measured over the 803 instruments that sound more
-than once: decay runs from 16 ms at the tenth percentile to 837 at the
-ninetieth, release from 22 to 1680, and 27% of envelopes fall to silence while
-73% settle and hold.
+Times are milliseconds. For reference, the envelopes the sample rips actually
+play, measured over the 803 instruments that sound more than once: decay runs
+from 16 ms at the tenth percentile to 837 at the ninetieth and 4720 at the
+longest, release from 22 to 1680, and 27% fall to silence while 73% settle and
+hold. `decay` deliberately rings out past the longest of them.
+
+`stab` and `pluck` currently differ only by 10 ms of release, which is below
+hearing. Keep both if you want the file names, or pass `--envelopes` to skip
+one.
 
 `0.1` is not a rounded zero. Simpler's attack range starts there, which is what
 Live writes with the knob fully down, and one wave cycle at C4 lasts 3.82 ms, so
