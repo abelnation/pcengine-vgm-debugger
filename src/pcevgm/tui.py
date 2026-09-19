@@ -25,6 +25,9 @@ LEAD_WIDTH = 37  # everything up to the dB L column
 LEVEL_WIDTH = 6  # the dB L and dB R columns
 AMP_WIDTH = 3
 TAIL_WIDTH = 8  # the gap, the BAL column and the gap before WAVE
+HEAD_WIDTH = LEAD_WIDTH + 2 * LEVEL_WIDTH + AMP_WIDTH + 4 + TAIL_WIDTH  # 64
+ENVELOPE_GAP = 2  # blank columns between the wave plot and the envelope plot
+ENVELOPE_LEFT = HEAD_WIDTH + WAVE_LENGTH + ENVELOPE_GAP
 UNKNOWN_WAVE = "wave  --"  # the table matches no complete upload
 UNKNOWN_INSTRUMENT = "inst  --"  # no note detected on this channel now
 from . import keyboard
@@ -221,11 +224,15 @@ class Debugger:
                   curses.color_pair(PAIR_DIM))
         return top + KEYBOARD_ROWS
 
+    def _envelope_plot(self, index: int):
+        shape, step = self.analysis.envelope_at(index, self.timeline.sample)
+        return (None, 0) if shape is None else (wave_rows(shape), step)
+
     def _draw_channels(self, screen, top: int) -> int:
         columns = (
             f" {'CH':>2}  {'ST':<3}  {'DIV':<5}  {'HZ':>8}  {'NOTE':<8}  "
             f"{'dB L':>6}  {'dB R':>6}  {'AMP':>3}  {'BAL':<3}   WAVE"
-        )
+        ).ljust(ENVELOPE_LEFT) + "ENVELOPE"
         self._put(screen, top, 0, columns, curses.A_UNDERLINE | curses.A_BOLD)
 
         state = self.timeline.state
@@ -249,6 +256,13 @@ class Debugger:
             # Tint the channel number to match its key on the keyboard.
             self._put(screen, row, 1, f"{index:2d}",
                       curses.color_pair(PAIR_CHANNEL_FIRST + index) | curses.A_BOLD)
+            envelope, step = self._envelope_plot(index)
+            if envelope is not None:
+                for line in range(WAVE_ROWS):
+                    self._put(screen, row + line, ENVELOPE_LEFT, envelope[line], attr)
+                    # Mark the step the note has reached.
+                    self._put(screen, row + line, ENVELOPE_LEFT + step,
+                              envelope[line][step], attr | curses.A_REVERSE)
             row += WAVE_ROWS
 
         master = (

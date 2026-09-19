@@ -160,6 +160,25 @@ class EnvelopeTests(unittest.TestCase):
         self.assertEqual(len(set(mapping.values())), 2)
 
 
+class StepTests(unittest.TestCase):
+    def note(self):
+        return notes.detect(make_vgm(setup(0) + play(0, 0, C4_DIVIDER, [31, 28, 26, 0])))[0]
+
+    def test_the_step_starts_at_zero(self):
+        self.assertEqual(self.note().step_at(0), 0)
+        self.assertEqual(self.note().step_at(-100), 0)
+
+    def test_the_step_follows_the_written_changes(self):
+        note = self.note()
+        self.assertEqual(note.step_at(FRAME), 1)
+        self.assertEqual(note.step_at(FRAME + 1), 1)
+        self.assertEqual(note.step_at(2 * FRAME), 2)
+
+    def test_the_step_holds_at_the_last_change(self):
+        note = self.note()
+        self.assertEqual(note.step_at(10 ** 9), len(note.amps) - 1)
+
+
 class AnalysisTests(unittest.TestCase):
     def build(self):
         commands = setup(0) + setup(1, wave=FLAT)
@@ -199,6 +218,28 @@ class AnalysisTests(unittest.TestCase):
         analysis = self.build()
         note = analysis.note_at(0, FRAME)
         self.assertEqual(analysis.instrument_at(0, FRAME), note.instrument)
+
+    def test_envelope_lookup_returns_the_shape_and_the_step(self):
+        analysis = self.build()
+        shape, step = analysis.envelope_at(0, 0)
+        self.assertEqual(shape, (31, 28, 0))
+        self.assertEqual(step, 0)
+        self.assertEqual(analysis.envelope_at(0, FRAME)[1], 1)
+        self.assertEqual(analysis.envelope_at(0, 2 * FRAME)[1], 2)
+
+    def test_envelope_lookup_is_empty_with_no_note(self):
+        analysis = self.build()
+        self.assertEqual(analysis.envelope_at(0, -1), (None, 0))
+        self.assertEqual(analysis.envelope_at(4, 0), (None, 0))
+
+    def test_the_step_never_runs_past_the_envelope(self):
+        wobble = [31, 30] * (notes.ENVELOPE_MAX_STEPS + 8)
+        analysis = notes.analyse(make_vgm(setup(0) + play(0, 0, C4_DIVIDER, wobble)))
+        note = analysis.notes[0]
+        self.assertGreater(len(note.amps), notes.ENVELOPE_MAX_STEPS)
+        shape, step = analysis.envelope_at(0, note.end)
+        self.assertEqual(len(shape), notes.ENVELOPE_MAX_STEPS)
+        self.assertEqual(step, notes.ENVELOPE_MAX_STEPS - 1)
 
     def test_pitch_text_reads_the_divider(self):
         analysis = self.build()

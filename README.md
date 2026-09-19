@@ -131,6 +131,10 @@ earlier run so you can remove them yourself.
     give each meter character 8 steps.
   - `WAVE` — the 32-entry wave table, plotted two character rows tall. Two rows
     give 16 levels instead of the 8 a single row can show.
+  - `ENVELOPE` — the envelope of the instrument sounding on the channel, one
+    column per amplitude step, drawn the same way. The step the note has
+    reached shows in reverse video. The column is blank when the detector
+    finds no note on that channel.
 - Master line: the master balance, the selected channel and the write count.
 - LFO line: register 9 split into its two fields. `enabled` is bit 7, which
   disables the LFO and resets its source channel when set. `depth` is bits 1
@@ -195,7 +199,9 @@ python -m unittest discover -s tests -t .
   `NOTE` column carries the cents offset.
 - A channel counts as sounding on the keyboard above -40 dB. At -60 dB the
   board fills with channels parked on divider 0 at 27 Hz.
-- The keyboard needs about 74 terminal columns and 29 rows.
+- The keyboard needs about 74 terminal columns and 29 rows. The envelope
+  plot starts at column 98, so the channel table wants about 130 columns to
+  show a long envelope whole.
 - Note detection is a heuristic tuned on one game's sound driver. A driver
   that gates every note would need no heuristic; one that uses the hardware
   LFO for vibrato would defeat the pitch test.

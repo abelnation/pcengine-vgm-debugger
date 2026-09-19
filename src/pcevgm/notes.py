@@ -56,6 +56,15 @@ class Note:
     def length(self) -> int:
         return self.end - self.start
 
+    def step_at(self, sample: int) -> int:
+        """How far into the envelope the note has played at a sample time."""
+        step = 0
+        for index, (at, _) in enumerate(self.amps):
+            if at > sample:
+                break
+            step = index
+        return step
+
 
 @dataclass
 class Analysis:
@@ -88,6 +97,17 @@ class Analysis:
     def instrument_at(self, channel: int, sample: int):
         note = self.note_at(channel, sample)
         return None if note is None else note.instrument
+
+    def envelope_at(self, channel: int, sample: int):
+        """The envelope sounding on a channel and the step it has reached.
+
+        The envelope is the instrument's, which a note cut short only gets part
+        of the way through, so the step says how far this note actually got.
+        """
+        note = self.note_at(channel, sample)
+        if note is None or not note.envelope:
+            return None, 0
+        return note.envelope, min(note.step_at(sample), len(note.envelope) - 1)
 
     def pitch_text(self, note: Note) -> str:
         divider = note.divider or 4096
