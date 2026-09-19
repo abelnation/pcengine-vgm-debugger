@@ -102,7 +102,7 @@ Every wave gets the same handful of envelopes, named so you can reach for one:
 | --- | --- | --- | --- | --- | --- |
 | `hold` | 0.1 | none | full | 50 | the raw oscillator, key down means tone |
 | `stab` | 0.1 | 300 | silence | 20 | percussive, cut off the moment the key lifts |
-| `pluck` | 0.1 | 300 | silence | 30 | percussive, with a touch of release |
+| `pluck` | 0.1 | 300 | -24 dB | 30 | percussive, holding a trace of tone |
 | `decay` | 0.1 | 5000 | silence | 50 | a held piano key, ringing out |
 | `tail` | 0.1 | 200 | -12 dB | 2000 | drops fast, then rings out |
 | `swell` | 300 | 500 | -6 dB | 400 | the slow attacks, whose longest measured 440 ms |
@@ -113,9 +113,10 @@ from 16 ms at the tenth percentile to 837 at the ninetieth and 4720 at the
 longest, release from 22 to 1680, and 27% fall to silence while 73% settle and
 hold. `decay` deliberately rings out past the longest of them.
 
-`stab` and `pluck` currently differ only by 10 ms of release, which is below
-hearing. Keep both if you want the file names, or pass `--envelopes` to skip
-one.
+The three percussive shapes form a gradient by how much tone survives the
+decay: `stab` falls to silence, `pluck` holds -24 dB under it, near the -26 dB
+median sustain of the rips, and `tail` holds -12 dB and rings on for two
+seconds after the key lifts.
 
 `0.1` is not a rounded zero. Simpler's attack range starts there, which is what
 Live writes with the knob fully down, and one wave cycle at C4 lasts 3.82 ms, so

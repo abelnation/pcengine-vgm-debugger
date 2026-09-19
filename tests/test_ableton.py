@@ -33,9 +33,21 @@ class EnvelopeTests(unittest.TestCase):
         self.assertEqual(sustain, 1.0)
 
     def test_a_silent_sustain_writes_simplers_floor(self):
-        envelope = next(e for e in ableton.STANDARD if e.name == "pluck")
+        envelope = next(e for e in ableton.STANDARD if e.name == "stab")
         _, _, sustain, _ = ableton.values(envelope)
         self.assertEqual(sustain, ableton.LEVEL_FLOOR)
+
+    def test_the_percussive_shapes_hold_more_tone_in_turn(self):
+        levels = [
+            ableton.values(next(e for e in ableton.STANDARD if e.name == name))[2]
+            for name in ("stab", "pluck", "tail")
+        ]
+        self.assertEqual(levels, sorted(levels))
+        self.assertEqual(len(set(levels)), 3)
+
+    def test_no_two_envelopes_are_the_same_preset(self):
+        settings = [ableton.values(envelope) for envelope in ableton.STANDARD]
+        self.assertEqual(len(set(settings)), len(settings))
 
     def test_a_level_between_reads_as_db(self):
         envelope = next(e for e in ableton.STANDARD if e.name == "tail")
