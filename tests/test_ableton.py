@@ -54,6 +54,48 @@ class AdsrTests(unittest.TestCase):
             self.assertLessEqual(sustain, 1.0)
 
 
+class SamplePathTests(unittest.TestCase):
+    WAV = os.path.join("proj", "song.vgz.wavs", "wave-01.wav")
+    LIBRARY = os.path.join("home", "Music", "Ableton", "User Library")
+
+    def test_no_sample_dir_means_no_relative_path(self):
+        relative, absolute = ableton.sample_paths(self.WAV)
+        self.assertEqual(relative, "")
+        self.assertEqual(absolute, os.path.abspath(self.WAV))
+
+    def test_only_the_wave_file_name_is_appended(self):
+        relative, _ = ableton.sample_paths(self.WAV, sample_dir="Samples/PCE")
+        self.assertEqual(relative, "Samples/PCE/wave-01.wav")
+        self.assertNotIn("song.vgz.wavs", relative)
+        self.assertNotIn("proj", relative)
+
+    def test_the_library_gives_the_absolute_path(self):
+        relative, absolute = ableton.sample_paths(
+            self.WAV, library=self.LIBRARY, sample_dir="Samples/PCE"
+        )
+        self.assertEqual(
+            absolute,
+            os.path.join(os.path.abspath(self.LIBRARY), "Samples", "PCE", "wave-01.wav"),
+        )
+        self.assertTrue(absolute.endswith(os.path.join("PCE", "wave-01.wav")))
+        self.assertEqual(relative, "Samples/PCE/wave-01.wav")
+
+    def test_a_library_without_a_sample_dir_keeps_the_real_path(self):
+        _, absolute = ableton.sample_paths(self.WAV, library=self.LIBRARY)
+        self.assertEqual(absolute, os.path.abspath(self.WAV))
+
+    def test_stray_slashes_are_trimmed(self):
+        for given in ("/Samples/PCE/", "Samples/PCE", "\\Samples\\PCE"):
+            relative, _ = ableton.sample_paths(self.WAV, sample_dir=given)
+            self.assertEqual(relative, "Samples/PCE/wave-01.wav", given)
+
+    def test_the_relative_path_never_climbs_out_of_the_library(self):
+        relative, _ = ableton.sample_paths(
+            self.WAV, library=self.LIBRARY, sample_dir="Samples/PCE"
+        )
+        self.assertNotIn("..", relative)
+
+
 class TemplateTests(unittest.TestCase):
     def test_the_template_ships_with_the_package(self):
         self.assertTrue(os.path.exists(ableton.TEMPLATE))
@@ -124,18 +166,24 @@ class WriteTests(unittest.TestCase):
             out = os.path.join(root, "ableton")
             self.assertEqual(ableton.write_presets(vgm, analysis, empty, out), [])
 
-    def test_a_library_root_gives_a_relative_sample_path(self):
+    def test_the_sample_dir_reaches_the_written_preset(self):
         vgm, analysis = build_analysis(two_instruments())
         with tempfile.TemporaryDirectory() as root:
             wave_dir = os.path.join(root, "wavs")
             waves.write_files(vgm, waves.extract(vgm), wave_dir)
             out = os.path.join(root, "ableton")
-            ableton.write_presets(vgm, analysis, wave_dir, out, library=root)
+            library = os.path.join(root, "library")
+            ableton.write_presets(
+                vgm, analysis, wave_dir, out, library=library, sample_dir="Samples/PCE"
+            )
             with open(os.path.join(out, "inst-00" + ableton.SUFFIX), "rb") as handle:
                 blob = handle.read()
             part = ET.fromstring(gzip.decompress(blob)).find(ableton.PART)
             relative = part.find("SampleRef/FileRef/RelativePath").get("Value")
-        self.assertEqual(relative, os.path.join("wavs", "wave-00.wav"))
+            absolute = part.find("SampleRef/FileRef/Path").get("Value")
+        self.assertEqual(relative, "Samples/PCE/wave-00.wav")
+        self.assertTrue(absolute.startswith(os.path.abspath(library)))
+        self.assertTrue(absolute.endswith(os.path.join("Samples", "PCE", "wave-00.wav")))
 
 
 if __name__ == "__main__":

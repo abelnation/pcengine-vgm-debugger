@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import gzip
 import os
+import posixpath
 import xml.etree.ElementTree as ET
 from statistics import median
 
@@ -87,6 +88,25 @@ def adsr(analysis: Analysis, instrument: int):
     return attack, decay, sustain, _clamp(release, *TIME_RANGE)
 
 
+def sample_paths(wav_path: str, library: str = "", sample_dir: str = ""):
+    """The relative and absolute sample paths a preset records.
+
+    `sample_dir` says where the wave files sit inside the Ableton library. Only
+    the wave file's own name is appended to it, because the folder the dump
+    happens to live in is not the folder Live will see. Without it the preset
+    carries an absolute path only, since RelativePathType 6 is meaningless
+    unless the sample really is under the library.
+    """
+    name = os.path.basename(wav_path)
+    folder = sample_dir.strip().strip("/\\").replace("\\", "/")
+    relative = posixpath.join(folder, name) if folder else ""
+    if library and folder:
+        absolute = os.path.join(os.path.abspath(library), *folder.split("/"), name)
+    else:
+        absolute = os.path.abspath(wav_path)
+    return relative, absolute
+
+
 def _set(node, path: str, value) -> None:
     found = node.find(path)
     if found is None:
@@ -95,8 +115,12 @@ def _set(node, path: str, value) -> None:
 
 
 def build(name: str, wav_path: str, values, relative_path: str = "",
-          template: str = TEMPLATE) -> bytes:
-    """One preset, as the bytes of an .adv file."""
+          path: str = "", template: str = TEMPLATE) -> bytes:
+    """One preset, as the bytes of an .adv file.
+
+    `wav_path` is the file on disk, read for its size and date. `path` is what
+    the preset records, which differs once the samples are copied elsewhere.
+    """
     attack, decay, sustain, release = values
     with open(template, "rb") as handle:
         root = ET.fromstring(gzip.decompress(handle.read()))
@@ -111,7 +135,7 @@ def build(name: str, wav_path: str, values, relative_path: str = "",
         _set(part, f"{loop}/End", WAVE_LENGTH - 1)
         _set(part, f"{loop}/Mode", SUSTAIN_LOOP)
 
-    _set(part, "SampleRef/FileRef/Path", os.path.abspath(wav_path))
+    _set(part, "SampleRef/FileRef/Path", path or os.path.abspath(wav_path))
     _set(part, "SampleRef/FileRef/RelativePath", relative_path)
     _set(part, "SampleRef/FileRef/OriginalFileSize", os.path.getsize(wav_path))
     _set(part, "SampleRef/FileRef/OriginalCrc", 0)  # zero means Live skips the check
@@ -129,7 +153,7 @@ def build(name: str, wav_path: str, values, relative_path: str = "",
 
 
 def write_presets(vgm, analysis: Analysis, wave_dir: str, out_dir: str,
-                  library: str = "") -> list:
+                  library: str = "", sample_dir: str = "") -> list:
     """One .adv per instrument. Returns what was written."""
     os.makedirs(out_dir, exist_ok=True)
     written = []
@@ -138,12 +162,10 @@ def write_presets(vgm, analysis: Analysis, wave_dir: str, out_dir: str,
         if not os.path.exists(wav):
             continue  # the note played a table that matched no complete upload
         name = analysis.instrument_names[instrument]
-        relative = ""
-        if library:
-            relative = os.path.relpath(os.path.abspath(wav), os.path.abspath(library))
+        relative, absolute = sample_paths(wav, library, sample_dir)
         values = adsr(analysis, instrument)
-        path = os.path.join(out_dir, f"{name}{SUFFIX}")
-        with open(path, "wb") as handle:
-            handle.write(build(name, wav, values, relative))
+        preset = os.path.join(out_dir, f"{name}{SUFFIX}")
+        with open(preset, "wb") as handle:
+            handle.write(build(name, wav, values, relative, absolute))
         written.append((name, wave, analysis.envelope_names[envelope_id], values))
     return written

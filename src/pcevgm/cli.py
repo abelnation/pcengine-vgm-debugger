@@ -133,7 +133,7 @@ def _dump_tracker(vgm, path) -> int:
     return 0
 
 
-def _export_ableton(vgm, out_dir, library) -> int:
+def _export_ableton(vgm, out_dir, library, sample_dir) -> int:
     analysis = notes_module.analyse(vgm)
     if not analysis.instruments:
         print("pcevgm: the detector found no instruments", file=sys.stderr)
@@ -143,11 +143,16 @@ def _export_ableton(vgm, out_dir, library) -> int:
         print(f"pcevgm: run --extract-waves first, {wave_dir} is missing", file=sys.stderr)
         return 1
     out_dir = out_dir or os.path.join(wave_dir, ableton_module.FOLDER)
-    written = ableton_module.write_presets(vgm, analysis, wave_dir, out_dir, library or "")
+    written = ableton_module.write_presets(
+        vgm, analysis, wave_dir, out_dir, library or "", sample_dir or ""
+    )
     if not written:
         print("pcevgm: no instrument matched an extracted wave", file=sys.stderr)
         return 1
     print(f"{len(written)} Simpler presets -> {out_dir}")
+    if not sample_dir:
+        print("pcevgm: without --sample-dir a preset carries only an absolute"
+              " sample path", file=sys.stderr)
     print(f"{'preset':10} {'wave':9} {'envelope':9} "
           f"{'attack':>8} {'decay':>9} {'sustain':>8} {'release':>9}")
     for name, wave, envelope, (attack, decay, sustain, release) in written:
@@ -188,9 +193,16 @@ def main(argv=None) -> int:
         " (default: the ableton folder inside the wave dump)",
     )
     parser.add_argument(
+        "--sample-dir",
+        metavar="REL",
+        help="where the wave files sit inside the Ableton library, relative to its"
+        " root; a preset appends only the wave file name to it",
+    )
+    parser.add_argument(
         "--library",
         metavar="PATH",
-        help="your Ableton User Library, so presets carry a relative sample path",
+        help="your Ableton User Library root, used with --sample-dir to write the"
+        " absolute sample path a preset falls back on",
     )
     parser.add_argument(
         "--tracker",
@@ -249,7 +261,7 @@ def main(argv=None) -> int:
     if args.notes is not None:
         return _print_notes(vgm, args.notes)
     if args.ableton is not None:
-        return _export_ableton(vgm, args.ableton, args.library)
+        return _export_ableton(vgm, args.ableton, args.library, args.sample_dir)
     if args.tracker is not None:
         return _dump_tracker(vgm, args.tracker)
     if args.extract_waves:

@@ -79,8 +79,13 @@ a `wave-NN.wav`.
 
 ```sh
 pcevgm song.vgz --extract-waves
-pcevgm song.vgz --ableton --library ~/Music/Ableton/User\ Library
+pcevgm song.vgz --ableton \
+  --library ~/Music/Ableton/User\ Library \
+  --sample-dir "Samples/PCE/Marine"
 ```
+
+Copy the wave files into that folder under your library, then the presets
+resolve without Live asking you to locate anything.
 
 An `.adv` file is one gzipped XML document. Rather than write that XML from
 nothing, the generator patches a template exported from Live 12.4.5, so the
@@ -104,11 +109,25 @@ floor and releases within a frame. Step timing comes from the median real note
 length of the instrument, since the canonical envelope carries shape but not
 duration.
 
+### Where the samples live
+
+A preset records the sample twice. `RelativePath` is read against your User
+Library root, which is what `RelativePathType 6` means, and `Path` is the
+absolute fallback.
+
+- `--sample-dir REL` is the folder inside the library that will hold the wave
+  files. A preset appends only the wave file name to it, never the folder the
+  dump happens to sit in.
+- `--library PATH` is the library root. With `--sample-dir` it fixes the
+  absolute path a preset falls back on.
+
+Give neither and a preset carries the wave file's own absolute path with no
+relative path, since `RelativePathType 6` means nothing unless the sample
+really is under the library. Live then resolves that path or asks you once.
+
 Two things are assumed rather than known, both worth checking on first open:
 the loop mode enum is set to 1 for a forward loop, and `OriginalCrc` is written
-as 0 to skip Live's sample checksum. Without `--library` the preset carries an
-absolute sample path and an empty relative one, so Live may ask you to locate
-the sample.
+as 0 to skip Live's sample checksum.
 
 ## Note, envelope and instrument analysis
 
