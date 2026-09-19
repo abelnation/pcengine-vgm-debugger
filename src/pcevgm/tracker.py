@@ -22,7 +22,8 @@ TICK_GAP = FRAME // 2  # instants closer than this belong to one tick
 NOTE_NAMES = ("C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-")
 NO_NOTE = "..."  # sounding, but the detector found no new note here
 NO_VALUE = ".."  # no note starts on this row, so no instrument either
-# A channel at zero amplitude leaves its cell empty, the way a tracker does.
+# A channel prints the row its amplitude reaches zero, then leaves its cell
+# empty until it sounds again, the way a tracker does.
 BLANK_NOTE = "   "
 BLANK_VALUE = "  "
 
@@ -96,20 +97,23 @@ def build(vgm: VgmFile, analysis: Analysis = None) -> list:
     timeline = Timeline(vgm)
     rows = []
     previous_noise = {channel: None for channel in NOISE_CHANNELS}
+    live = [False] * NUM_CHANNELS  # the tone cell printed something last row
+    noise_live = {channel: False for channel in NOISE_CHANNELS}
     for index, at in enumerate(times):
         timeline.seek_sample(at)
         state = timeline.state
         cells = []
         for channel_index in range(NUM_CHANNELS):
             channel = state.channels[channel_index]
-            silent = (
-                not channel.enabled
-                or channel.amplitude == 0
-                or (channel_index >= FIRST_NOISE_CHANNEL and channel.noise_enabled)
+            playing = channel.enabled and not (
+                channel_index >= FIRST_NOISE_CHANNEL and channel.noise_enabled
             )
-            if silent:
+            if not playing or (channel.amplitude == 0 and not live[channel_index]):
                 cells.append(Cell(BLANK_NOTE, BLANK_VALUE, BLANK_VALUE))
+                live[channel_index] = False
                 continue
+            # Zero prints once, as the row the note lets go.
+            live[channel_index] = channel.amplitude > 0
             note = onsets.get((index, channel_index))
             cells.append(
                 Cell(
@@ -122,15 +126,17 @@ def build(vgm: VgmFile, analysis: Analysis = None) -> list:
         noise = []
         for channel_index in NOISE_CHANNELS:
             channel = state.channels[channel_index]
-            playing = (
-                channel.enabled and channel.noise_enabled and channel.amplitude > 0
-            )
-            setting = (channel.noise_enabled, channel.noise_frequency)
-            started = playing and setting != previous_noise[channel_index]
-            previous_noise[channel_index] = setting if playing else None
-            if not playing:
+            active = channel.enabled and channel.noise_enabled
+            quiet = channel.amplitude == 0
+            if not active or (quiet and not noise_live[channel_index]):
                 noise.append(NoiseCell(BLANK_VALUE, BLANK_VALUE))
+                noise_live[channel_index] = False
+                previous_noise[channel_index] = None
                 continue
+            setting = (channel.noise_enabled, channel.noise_frequency)
+            started = not quiet and setting != previous_noise[channel_index]
+            previous_noise[channel_index] = None if quiet else setting
+            noise_live[channel_index] = not quiet
             noise.append(
                 NoiseCell(
                     f"{channel.noise_frequency:02X}" if started else NO_VALUE,

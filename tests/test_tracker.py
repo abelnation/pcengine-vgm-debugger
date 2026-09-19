@@ -78,11 +78,22 @@ class BuildTests(unittest.TestCase):
         self.assertFalse(cell.onset)
         self.assertEqual(tracker.format_cell(cell, wide=True).strip(), "")
 
-    def test_a_channel_at_zero_amplitude_leaves_its_cell_empty(self):
-        _, rows = self.build(setup(0) + play(0, 0, C4_DIVIDER, [31, 28, 0]))
-        # The third tick is where channel 0 reaches amplitude zero.
+    def test_zero_amplitude_prints_once_then_the_cell_empties(self):
+        _, rows = self.build(setup(0) + play(0, 0, C4_DIVIDER, [31, 28, 0, 0, 0]))
         self.assertEqual(rows[1].cells[0].amplitude, "1C")
-        self.assertEqual(tracker.format_cell(rows[2].cells[0], wide=True).strip(), "")
+        self.assertEqual(rows[2].cells[0].amplitude, "00")  # the note lets go
+        self.assertEqual(tracker.format_cell(rows[3].cells[0], wide=True).strip(), "")
+        self.assertEqual(tracker.format_cell(rows[4].cells[0], wide=True).strip(), "")
+
+    def test_the_release_row_starts_no_note(self):
+        _, rows = self.build(setup(0) + play(0, 0, C4_DIVIDER, [31, 28, 0, 0]))
+        self.assertFalse(rows[2].cells[0].onset)
+        self.assertEqual(rows[2].cells[0].note, tracker.NO_NOTE)
+
+    def test_a_channel_that_never_sounds_prints_nothing(self):
+        _, rows = self.build(setup(0) + play(0, 0, C4_DIVIDER, [31, 28, 0]))
+        for row in rows:
+            self.assertEqual(tracker.format_cell(row.cells[3], wide=True).strip(), "")
 
     def test_a_cell_is_the_same_width_empty_or_full(self):
         _, rows = self.build(setup(0) + play(0, 0, C4_DIVIDER, [31, 28, 0]))
@@ -152,9 +163,16 @@ class NoiseTests(unittest.TestCase):
         self.assertFalse(cell.onset)
         self.assertEqual((cell.frequency, cell.amplitude), (tracker.NO_VALUE, "1C"))
 
-    def test_a_hit_ends_when_the_amplitude_reaches_zero(self):
-        rows = self.build(self.hit())
-        self.assertEqual(tracker.format_noise(rows[2].noise[1]).strip(), "")
+    def test_a_hit_prints_its_zero_row_then_empties(self):
+        commands = ordered(
+            setup(5),
+            noise(5, 0, 0x1F),
+            play(5, 0, C4_DIVIDER, [31, 28, 0, 0]),
+        )
+        rows = self.build(commands)
+        self.assertEqual(rows[2].noise[1].amplitude, "00")
+        self.assertFalse(rows[2].noise[1].onset)
+        self.assertEqual(tracker.format_noise(rows[3].noise[1]).strip(), "")
 
     def test_a_frequency_change_starts_a_new_hit(self):
         commands = ordered(
