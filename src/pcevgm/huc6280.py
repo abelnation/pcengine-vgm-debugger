@@ -57,6 +57,7 @@ LFO_DISABLE = 0x80
 LFO_MODE_MASK = 0x03
 
 NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+BLOCKS = "▁▂▃▄▅▆▇█"  # 8 levels; every wave cell stays visible
 
 # Amplitude steps are 1.5 dB. Balance steps are 3.0 dB, so two amplitude units.
 BALANCE_WEIGHT = 2
@@ -203,3 +204,9 @@ def note_text(hz: float) -> str:
         return "--"
     cents = int(round((midi - nearest) * 100))
     return f"{NOTE_NAMES[nearest % 12]}{nearest // 12 - 1}{cents:+03d}"
+
+
+def sparkline(wave) -> str:
+    """Draw a wave table as one character per sample."""
+    levels = len(BLOCKS)
+    return "".join(BLOCKS[min(levels - 1, value * levels // WAVE_LENGTH)] for value in wave)

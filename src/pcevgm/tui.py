@@ -7,13 +7,12 @@ import curses
 import locale
 import time
 
-from .huc6280 import NUM_CHANNELS, note_text
+from .huc6280 import NUM_CHANNELS, note_text, sparkline
 from .player import HUC6280_WRITE, Timeline, build_descriptions
 from .vgm import SAMPLE_RATE, VgmFile
 
 FRAME_SAMPLES = 735  # one NTSC video frame
 SPEEDS = [0.25, 0.5, 1.0, 2.0, 4.0]
-BLOCKS = "▁▂▃▄▅▆▇█"  # 8 levels; every wave cell stays visible
 POLL_MS = 20
 
 # Fallback for escape sequences curses hands over one byte at a time.
@@ -49,10 +48,6 @@ def format_time(sample: int) -> str:
     seconds = sample / SAMPLE_RATE
     minutes = int(seconds // 60)
     return f"{minutes:02d}:{seconds - minutes * 60:05.2f}"
-
-
-def sparkline(wave) -> str:
-    return "".join(BLOCKS[min(7, value * 8 // 32)] for value in wave)
 
 
 class Debugger:

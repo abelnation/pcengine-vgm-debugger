@@ -35,9 +35,32 @@ PYTHONPATH=src python3 -m pcevgm examples/scale.vgm
 Text modes:
 
 ```sh
-pcevgm file.vgm --info        # header, clocks, GD3 tags
-pcevgm file.vgm --dump 200    # first 200 decoded commands
+pcevgm file.vgm --info             # header, clocks, GD3 tags
+pcevgm file.vgm --dump 200         # first 200 decoded commands
+pcevgm file.vgm --extract-waves    # write the wave tables to file.vgm.wavs/
 ```
+
+## Wave extraction
+
+`--extract-waves` replays the stream and keeps every wave table the track
+uploads. A table is 32 samples of 5 bits. The extractor captures one each time
+a channel finishes a full pass of 32 writes to the wave data register. Identical
+tables collapse into one entry.
+
+Output goes to the input path plus `.wavs`, so `song.vgz` gives `song.vgz.wavs/`.
+Use `--out DIR` to write somewhere else.
+
+```
+song.vgz.wavs/
+  manifest.txt     where each wave is uploaded, and an ASCII plot
+  wave-00.pcm      32 raw bytes, one per sample, values 0 to 31
+  wave-00.hex      the same bytes as text, 16 to a line
+  wave-01.pcm
+  wave-01.hex
+```
+
+The command never deletes files. It names any `wave-*.pcm` or `wave-*.hex` left
+over from an earlier run so you can remove them yourself.
 
 ## Screen
 
@@ -80,8 +103,9 @@ python -m unittest discover -s tests -t .
 | `src/pcevgm/vgm.py` | file, header, GD3 and command stream parsing |
 | `src/pcevgm/huc6280.py` | PSG register model and pitch / level maths |
 | `src/pcevgm/player.py` | cursor over the stream, state replay, command text |
+| `src/pcevgm/waves.py` | wave table extraction and the `.pcm` / `.hex` output |
 | `src/pcevgm/tui.py` | curses screen and key handling |
-| `src/pcevgm/cli.py` | argument parsing, `--info` and `--dump` |
+| `src/pcevgm/cli.py` | argument parsing and the text modes |
 | `tools/make_example.py` | builds a synthetic test file |
 
 ## Known limits
@@ -93,3 +117,5 @@ python -m unittest discover -s tests -t .
 - Noise frequency shows the raw 5-bit register, not a rate in Hz.
 - The LFO registers are stored and shown but not applied to channel pitch.
 - Commands for other chips are decoded for length and time only.
+- Wave extraction ignores a partial pass. A track that rewrites only part of
+  a table produces no new entry until the next full pass.

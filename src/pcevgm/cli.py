@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from . import waves as waves_module
 from .player import HUC6280_WRITE, build_descriptions
 from .vgm import SAMPLE_RATE, VgmError, load
 
@@ -43,6 +44,23 @@ def _print_dump(vgm, count: int) -> None:
         )
 
 
+def _extract_waves(vgm, out_dir) -> int:
+    waves = waves_module.extract(vgm)
+    if not waves:
+        print("pcevgm: the track uploads no complete wave table", file=sys.stderr)
+        return 1
+    report = waves_module.write_files(vgm, waves, out_dir or waves_module.folder_for(vgm.path))
+    uploads = sum(len(wave.uploads) for wave in waves)
+    print(f"{len(waves)} waves from {uploads} uploads -> {report['directory']}")
+    for wave, stem in zip(waves, report["stems"]):
+        channels = ", ".join(str(c) for c in wave.channels)
+        suffixes = waves_module.PCM_SUFFIX + " " + waves_module.HEX_SUFFIX
+        print(f"  {stem}  [{suffixes}]  {len(wave.uploads):4d} uploads  ch {channels}")
+    for name in report["stale"]:
+        print(f"pcevgm: left over from an earlier run: {name}", file=sys.stderr)
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="pcevgm",
@@ -58,6 +76,16 @@ def main(argv=None) -> int:
         metavar="N",
         help="print the first N commands, then exit (default 64)",
     )
+    parser.add_argument(
+        "--extract-waves",
+        action="store_true",
+        help="write each wave table the track uploads as raw bytes, then exit",
+    )
+    parser.add_argument(
+        "--out",
+        metavar="DIR",
+        help="where --extract-waves writes (default: the input path plus .wavs)",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -72,6 +100,8 @@ def main(argv=None) -> int:
     if args.dump is not None:
         _print_dump(vgm, args.dump)
         return 0
+    if args.extract_waves:
+        return _extract_waves(vgm, args.out)
 
     if not vgm.header.huc6280_clock:
         print("pcevgm: no HuC6280 clock in the header; the chip view will stay empty",
