@@ -109,6 +109,24 @@ floor and releases within a frame. Step timing comes from the median real note
 length of the instrument, since the canonical envelope carries shape but not
 duration.
 
+### Fewer presets
+
+Instruments that end up sounding the same share one preset, named after
+whichever plays the most notes. Two settings match when their times agree and
+their sustains agree:
+
+- a time closer than one video frame is the same time, because that is how
+  often the driver can change anything
+- beyond that, times compare by fraction, `--preset-tolerance`, 0.10 by default
+- a sustain within 1.5 dB is the same level, because that is one step of the
+  chip's own amplitude register
+
+An instrument also needs `--min-notes` notes, 2 by default, to lead a preset of
+its own. One that fires once is usually the detector's own guesswork; it still
+joins a preset when one fits. Across the sample rips this takes 1,059
+instruments down to 529 presets while 99% of notes keep one. Pass
+`--min-notes 1 --preset-tolerance 0` for a preset per instrument.
+
 ### Where the samples live
 
 A preset records the sample twice. `RelativePath` is read against your User

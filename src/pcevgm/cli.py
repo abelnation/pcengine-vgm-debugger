@@ -133,7 +133,7 @@ def _dump_tracker(vgm, path) -> int:
     return 0
 
 
-def _export_ableton(vgm, out_dir, library, sample_dir) -> int:
+def _export_ableton(vgm, out_dir, library, sample_dir, tolerance, min_notes) -> int:
     analysis = notes_module.analyse(vgm)
     if not analysis.instruments:
         print("pcevgm: the detector found no instruments", file=sys.stderr)
@@ -144,20 +144,25 @@ def _export_ableton(vgm, out_dir, library, sample_dir) -> int:
         return 1
     out_dir = out_dir or os.path.join(wave_dir, ableton_module.FOLDER)
     written = ableton_module.write_presets(
-        vgm, analysis, wave_dir, out_dir, library or "", sample_dir or ""
+        vgm, analysis, wave_dir, out_dir, library or "", sample_dir or "",
+        tolerance, min_notes,
     )
     if not written:
         print("pcevgm: no instrument matched an extracted wave", file=sys.stderr)
         return 1
-    print(f"{len(written)} Simpler presets -> {out_dir}")
+    print(f"{len(written)} Simpler presets from {len(analysis.instruments)} "
+          f"instruments -> {out_dir}")
     if not sample_dir:
         print("pcevgm: without --sample-dir a preset carries only an absolute"
               " sample path", file=sys.stderr)
     print(f"{'preset':10} {'wave':9} {'envelope':9} "
-          f"{'attack':>8} {'decay':>9} {'sustain':>8} {'release':>9}")
-    for name, wave, envelope, (attack, decay, sustain, release) in written:
+          f"{'attack':>8} {'decay':>9} {'sustain':>8} {'release':>9} "
+          f"{'covers':>7} {'notes':>6}")
+    for name, wave, envelope, values, instruments, notes in written:
+        attack, decay, sustain, release = values
         print(f"{name:10} {wave:9} {envelope:9} "
-              f"{attack:8.1f} {decay:9.1f} {sustain:8.4f} {release:9.1f}")
+              f"{attack:8.1f} {decay:9.1f} {sustain:8.4f} {release:9.1f} "
+              f"{instruments:7d} {notes:6d}")
     return 0
 
 
@@ -191,6 +196,22 @@ def main(argv=None) -> int:
         metavar="DIR",
         help="write an Ableton Simpler preset per instrument, then exit"
         " (default: the ableton folder inside the wave dump)",
+    )
+    parser.add_argument(
+        "--preset-tolerance",
+        type=float,
+        default=ableton_module.TOLERANCE,
+        metavar="F",
+        help="how far two envelope times may differ and still share a preset,"
+        f" as a fraction (default {ableton_module.TOLERANCE:g})",
+    )
+    parser.add_argument(
+        "--min-notes",
+        type=int,
+        default=ableton_module.MIN_NOTES,
+        metavar="N",
+        help="an instrument needs this many notes to get a preset of its own"
+        f" (default {ableton_module.MIN_NOTES})",
     )
     parser.add_argument(
         "--sample-dir",
@@ -261,7 +282,10 @@ def main(argv=None) -> int:
     if args.notes is not None:
         return _print_notes(vgm, args.notes)
     if args.ableton is not None:
-        return _export_ableton(vgm, args.ableton, args.library, args.sample_dir)
+        return _export_ableton(
+            vgm, args.ableton, args.library, args.sample_dir,
+            args.preset_tolerance, args.min_notes,
+        )
     if args.tracker is not None:
         return _dump_tracker(vgm, args.tracker)
     if args.extract_waves:
