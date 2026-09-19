@@ -163,8 +163,9 @@ earlier run so you can remove them yourself.
   unless the LFO is enabled at a non-zero depth.
 - Log: the command stream around the cursor. The current command is marked `>`.
 - Tracker: on the right, one row per driver tick, one column group per channel.
-  `...` means sounding with no new note, `---` means silent. The view scrolls
-  with playback and marks the current row. Press `t` to hide it.
+  `...` means sounding with no new note. A channel that is off, switched to
+  noise, or at zero amplitude leaves its cell empty until it sounds again. The
+  view scrolls with playback and marks the current row. Press `t` to hide it.
   - A cell reads note, amplitude in hex, then the instrument, at 162 terminal
     columns or wider. Below that it drops the instrument, leaving note and
     amplitude in the same places. Below 144 columns the panel hides itself.

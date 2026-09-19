@@ -21,8 +21,10 @@ from .vgm import SAMPLE_RATE, VgmFile
 TICK_GAP = FRAME // 2  # instants closer than this belong to one tick
 NOTE_NAMES = ("C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-")
 NO_NOTE = "..."  # sounding, but the detector found no new note here
-SILENT = "---"
-NO_VALUE = ".."
+NO_VALUE = ".."  # no note starts on this row, so no instrument either
+# A channel at zero amplitude leaves its cell empty, the way a tracker does.
+BLANK_NOTE = "   "
+BLANK_VALUE = "  "
 
 ROW_LABEL = 5  # digits in the row number
 CELL_NARROW = len("C-5 1F")  # note and amplitude
@@ -31,9 +33,12 @@ CELL_WIDE = len("C-5 1F 00")  # note, amplitude and instrument
 
 @dataclass
 class Cell:
+    """One channel on one row, in the order the cell prints."""
+
     note: str
-    instrument: str
     amplitude: str
+    instrument: str
+    onset: bool = False  # a note starts here
 
 
 @dataclass
@@ -84,18 +89,21 @@ def build(vgm: VgmFile, analysis: Analysis = None) -> list:
         cells = []
         for channel_index in range(NUM_CHANNELS):
             channel = state.channels[channel_index]
-            silent = not channel.enabled or (
-                channel_index >= FIRST_NOISE_CHANNEL and channel.noise_enabled
+            silent = (
+                not channel.enabled
+                or channel.amplitude == 0
+                or (channel_index >= FIRST_NOISE_CHANNEL and channel.noise_enabled)
             )
             if silent:
-                cells.append(Cell(SILENT, NO_VALUE, NO_VALUE))
+                cells.append(Cell(BLANK_NOTE, BLANK_VALUE, BLANK_VALUE))
                 continue
             note = onsets.get((index, channel_index))
             cells.append(
                 Cell(
                     note_name(channel.frequency_hz(state.clock)) if note else NO_NOTE,
-                    f"{note.instrument:02d}" if note else NO_VALUE,
                     f"{channel.amplitude:02X}",
+                    f"{note.instrument:02d}" if note else NO_VALUE,
+                    onset=note is not None,
                 )
             )
         rows.append(Row(index, at, cells))
@@ -137,7 +145,8 @@ def dump(vgm: VgmFile, rows: list, path: str) -> None:
         handle.write(f"source  {vgm.path}\n")
         handle.write(f"rows    {len(rows)} ticks, one per video frame\n")
         handle.write("cell    note, amplitude in hex, instrument\n")
-        handle.write(f"        {NO_NOTE} sounding with no new note, {SILENT} silent\n\n")
+        handle.write(f"        {NO_NOTE} sounding with no new note,"
+                     " an empty cell is silent\n\n")
         handle.write("time      " + format_header(wide=True) + "\n")
         for row in rows:
             handle.write(f"{row.time_text}  {format_row(row, wide=True)}\n")

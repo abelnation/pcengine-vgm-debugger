@@ -71,19 +71,33 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(cell.instrument, tracker.NO_VALUE)
         self.assertEqual(cell.amplitude, "1C")
 
-    def test_a_silent_channel_reads_as_silent(self):
+    def test_a_silent_channel_leaves_its_cell_empty(self):
         _, rows = self.build(setup(0) + play(0, 0, C4_DIVIDER, [31, 28, 0]))
         cell = rows[0].cells[3]
-        self.assertEqual(
-            (cell.note, cell.instrument, cell.amplitude),
-            (tracker.SILENT, tracker.NO_VALUE, tracker.NO_VALUE),
-        )
+        self.assertFalse(cell.onset)
+        self.assertEqual(tracker.format_cell(cell, wide=True).strip(), "")
+
+    def test_a_channel_at_zero_amplitude_leaves_its_cell_empty(self):
+        _, rows = self.build(setup(0) + play(0, 0, C4_DIVIDER, [31, 28, 0]))
+        # The third tick is where channel 0 reaches amplitude zero.
+        self.assertEqual(rows[1].cells[0].amplitude, "1C")
+        self.assertEqual(tracker.format_cell(rows[2].cells[0], wide=True).strip(), "")
+
+    def test_a_cell_is_the_same_width_empty_or_full(self):
+        _, rows = self.build(setup(0) + play(0, 0, C4_DIVIDER, [31, 28, 0]))
+        for wide in (False, True):
+            widths = {
+                len(tracker.format_cell(cell, wide))
+                for row in rows
+                for cell in row.cells
+            }
+            self.assertEqual(widths, {tracker.CELL_WIDE if wide else tracker.CELL_NARROW})
 
     def test_a_noise_channel_reads_as_silent(self):
         noise = [write(0, REG_CHANNEL_SELECT, 5), write(0, REG_NOISE, 0x9F)]
         commands = ordered(setup(5), play(5, 0, C4_DIVIDER, [31, 28, 26]), noise)
         _, rows = self.build(commands)
-        self.assertEqual(rows[0].cells[5].note, tracker.SILENT)
+        self.assertEqual(tracker.format_cell(rows[0].cells[5], wide=True).strip(), "")
 
     def test_two_channels_start_on_the_same_row(self):
         commands = ordered(
@@ -93,7 +107,7 @@ class BuildTests(unittest.TestCase):
         )
         _, rows = self.build(commands)
         self.assertEqual(rows[0].cells[0].instrument, "00")
-        self.assertNotEqual(rows[0].cells[2].instrument, tracker.NO_VALUE)
+        self.assertTrue(rows[0].cells[2].onset)
 
     def test_row_lookup_finds_the_row_covering_a_time(self):
         _, rows = self.build(setup(0) + play(0, 0, C4_DIVIDER, [31, 28, 26, 0]))
@@ -126,12 +140,12 @@ class FormatTests(unittest.TestCase):
         self.assertIn("00", tracker.format_cell(rows[0].cells[0], wide=True))
 
     def test_the_cell_reads_note_then_amplitude_then_instrument(self):
-        cell = tracker.Cell("C-5", "07", "1B")
+        cell = tracker.Cell("C-5", "1B", "07", onset=True)
         self.assertEqual(tracker.format_cell(cell, wide=True), "C-5 1B 07")
         self.assertEqual(tracker.format_cell(cell, wide=False), "C-5 1B")
 
     def test_the_amplitude_column_holds_its_place_in_both_forms(self):
-        cell = tracker.Cell("C-5", "07", "1B")
+        cell = tracker.Cell("C-5", "1B", "07", onset=True)
         narrow = tracker.format_cell(cell, wide=False)
         wide = tracker.format_cell(cell, wide=True)
         self.assertTrue(wide.startswith(narrow))

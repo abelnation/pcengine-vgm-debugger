@@ -124,12 +124,7 @@ def _dump_tracker(vgm, path) -> int:
         return 1
     path = path or vgm.path + ".tracker.txt"
     tracker_module.dump(vgm, rows, path)
-    onsets = sum(
-        1
-        for row in rows
-        for cell in row.cells
-        if cell.instrument != tracker_module.NO_VALUE
-    )
+    onsets = sum(1 for row in rows for cell in row.cells if cell.onset)
     print(f"{len(rows)} ticks, {onsets} note starts -> {path}")
     return 0
 
