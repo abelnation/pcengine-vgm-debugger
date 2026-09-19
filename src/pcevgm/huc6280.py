@@ -12,24 +12,55 @@ from typing import Optional
 NUM_CHANNELS = 6
 WAVE_LENGTH = 32
 DEFAULT_CLOCK = 3_579_545
+FIRST_NOISE_CHANNEL = 4  # noise exists on channels 4 and 5 only
+
+# Register addresses. The chip maps these at $0800 to $0809.
+REG_CHANNEL_SELECT = 0x00
+REG_MASTER_BALANCE = 0x01
+REG_FREQ_LOW = 0x02
+REG_FREQ_HIGH = 0x03
+REG_CONTROL = 0x04
+REG_BALANCE = 0x05
+REG_WAVE_DATA = 0x06
+REG_NOISE = 0x07
+REG_LFO_FREQ = 0x08
+REG_LFO_CONTROL = 0x09
 
 REGISTER_NAMES = {
-    0x00: "channel select",
-    0x01: "master balance",
-    0x02: "freq low",
-    0x03: "freq high",
-    0x04: "control",
-    0x05: "balance",
-    0x06: "wave data",
-    0x07: "noise",
-    0x08: "LFO freq",
-    0x09: "LFO control",
+    REG_CHANNEL_SELECT: "channel select",
+    REG_MASTER_BALANCE: "master balance",
+    REG_FREQ_LOW: "freq low",
+    REG_FREQ_HIGH: "freq high",
+    REG_CONTROL: "control",
+    REG_BALANCE: "balance",
+    REG_WAVE_DATA: "wave data",
+    REG_NOISE: "noise",
+    REG_LFO_FREQ: "LFO freq",
+    REG_LFO_CONTROL: "LFO control",
 }
+
+# Field widths inside a register byte.
+REGISTER_MASK = 0x0F  # the chip decodes 4 address bits
+BYTE_MASK = 0xFF
+NIBBLE_MASK = 0x0F
+CHANNEL_MASK = 0x07  # REG_CHANNEL_SELECT holds 3 bits
+FREQ_HIGH_MASK = 0x0F  # REG_FREQ_HIGH holds the top 4 of 12 bits
+FREQ_LOW_MASK = 0x00FF
+FREQ_HIGH_SHIFT = 8
+AMPLITUDE_MASK = 0x1F
+SAMPLE_MASK = 0x1F  # wave and DDA samples are 5 bits
+CONTROL_ENABLE = 0x80
+CONTROL_DDA = 0x40
+NOISE_ENABLE = 0x80
+NOISE_FREQ_MASK = 0x1F
+LFO_DISABLE = 0x80
+LFO_MODE_MASK = 0x03
 
 NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
 # Amplitude steps are 1.5 dB. Balance steps are 3.0 dB, so two amplitude units.
-MAX_VOLUME_STEPS = 0x1F + 2 * 0x0F + 2 * 0x0F  # 91
+BALANCE_WEIGHT = 2
+MAX_VOLUME_STEPS = AMPLITUDE_MASK + 2 * BALANCE_WEIGHT * NIBBLE_MASK  # 91
 DB_PER_STEP = 1.5
 
 
@@ -45,7 +76,7 @@ class Channel:
     wave_index: int = 0
     dda_sample: int = 0
     noise_enabled: bool = False
-    noise_frequency: int = 0  # 5-bit, channels 4 and 5 only
+    noise_frequency: int = 0  # 5-bit
     writes: int = 0
 
     def frequency_hz(self, clock: int) -> float:
@@ -57,8 +88,8 @@ class Channel:
         """Attenuation per side in dB, or None when the channel is off."""
         if not self.enabled:
             return None
-        left = self.amplitude + 2 * self.balance_left + 2 * master_left
-        right = self.amplitude + 2 * self.balance_right + 2 * master_right
+        left = self.amplitude + BALANCE_WEIGHT * (self.balance_left + master_left)
+        right = self.amplitude + BALANCE_WEIGHT * (self.balance_right + master_right)
         # The + 0.0 turns -0.0 into 0.0 at full volume.
         return (
             -DB_PER_STEP * (MAX_VOLUME_STEPS - max(0, left)) + 0.0,
@@ -80,21 +111,21 @@ class HuC6280State:
         self.writes = 0
 
     def write(self, register: int, value: int) -> None:
-        register &= 0x0F
-        value &= 0xFF
+        register &= REGISTER_MASK
+        value &= BYTE_MASK
         self.writes += 1
 
-        if register == 0x00:
-            self.selected = value & 0x07
+        if register == REG_CHANNEL_SELECT:
+            self.selected = value & CHANNEL_MASK
             return
-        if register == 0x01:
-            self.master_left = (value >> 4) & 0x0F
-            self.master_right = value & 0x0F
+        if register == REG_MASTER_BALANCE:
+            self.master_left = (value >> 4) & NIBBLE_MASK
+            self.master_right = value & NIBBLE_MASK
             return
-        if register == 0x08:
+        if register == REG_LFO_FREQ:
             self.lfo_frequency = value
             return
-        if register == 0x09:
+        if register == REG_LFO_CONTROL:
             self.lfo_control = value
             return
         if self.selected >= NUM_CHANNELS:
@@ -102,66 +133,68 @@ class HuC6280State:
 
         channel = self.channels[self.selected]
         channel.writes += 1
-        if register == 0x02:
-            channel.frequency = (channel.frequency & 0x0F00) | value
-        elif register == 0x03:
-            channel.frequency = (channel.frequency & 0x00FF) | ((value & 0x0F) << 8)
-        elif register == 0x04:
-            channel.enabled = bool(value & 0x80)
-            channel.dda = bool(value & 0x40)
-            channel.amplitude = value & 0x1F
+        if register == REG_FREQ_LOW:
+            channel.frequency = (channel.frequency & ~FREQ_LOW_MASK) | value
+        elif register == REG_FREQ_HIGH:
+            high = (value & FREQ_HIGH_MASK) << FREQ_HIGH_SHIFT
+            channel.frequency = (channel.frequency & FREQ_LOW_MASK) | high
+        elif register == REG_CONTROL:
+            channel.enabled = bool(value & CONTROL_ENABLE)
+            channel.dda = bool(value & CONTROL_DDA)
+            channel.amplitude = value & AMPLITUDE_MASK
             if not channel.enabled:
                 channel.wave_index = 0  # the chip resets the wave pointer
-        elif register == 0x05:
-            channel.balance_left = (value >> 4) & 0x0F
-            channel.balance_right = value & 0x0F
-        elif register == 0x06:
+        elif register == REG_BALANCE:
+            channel.balance_left = (value >> 4) & NIBBLE_MASK
+            channel.balance_right = value & NIBBLE_MASK
+        elif register == REG_WAVE_DATA:
             if channel.dda:
-                channel.dda_sample = value & 0x1F
+                channel.dda_sample = value & SAMPLE_MASK
             else:
-                channel.waveform[channel.wave_index] = value & 0x1F
+                channel.waveform[channel.wave_index] = value & SAMPLE_MASK
                 channel.wave_index = (channel.wave_index + 1) % WAVE_LENGTH
-        elif register == 0x07:
-            if self.selected >= 4:  # noise exists on channels 4 and 5 only
-                channel.noise_enabled = bool(value & 0x80)
-                channel.noise_frequency = value & 0x1F
+        elif register == REG_NOISE:
+            if self.selected >= FIRST_NOISE_CHANNEL:
+                channel.noise_enabled = bool(value & NOISE_ENABLE)
+                channel.noise_frequency = value & NOISE_FREQ_MASK
 
 
 def describe_write(register: int, value: int, selected: int) -> str:
     """Text for one register write, given the channel selected before it."""
-    register &= 0x0F
-    value &= 0xFF
-    if register == 0x00:
-        return f"select channel {value & 0x07}"
-    if register == 0x01:
-        return f"master balance L={value >> 4:X} R={value & 0x0F:X}"
-    if register == 0x08:
+    register &= REGISTER_MASK
+    value &= BYTE_MASK
+    if register == REG_CHANNEL_SELECT:
+        return f"select channel {value & CHANNEL_MASK}"
+    if register == REG_MASTER_BALANCE:
+        return f"master balance L={value >> 4:X} R={value & NIBBLE_MASK:X}"
+    if register == REG_LFO_FREQ:
         return f"LFO freq {value}"
-    if register == 0x09:
-        state = "off" if value & 0x80 else "on"
-        return f"LFO {state} mode={value & 0x03}"
+    if register == REG_LFO_CONTROL:
+        state = "off" if value & LFO_DISABLE else "on"
+        return f"LFO {state} mode={value & LFO_MODE_MASK}"
 
     prefix = f"ch{selected}"
-    if register == 0x02:
+    if register == REG_FREQ_LOW:
         return f"{prefix} freq low 0x{value:02X}"
-    if register == 0x03:
-        return f"{prefix} freq high 0x{value & 0x0F:X}"
-    if register == 0x04:
-        state = "on " if value & 0x80 else "off"
-        dda = " dda" if value & 0x40 else ""
-        return f"{prefix} {state} amp={value & 0x1F}{dda}"
-    if register == 0x05:
-        return f"{prefix} balance L={value >> 4:X} R={value & 0x0F:X}"
-    if register == 0x06:
-        return f"{prefix} wave/dda {value & 0x1F}"
-    if register == 0x07:
-        state = "on" if value & 0x80 else "off"
-        return f"{prefix} noise {state} freq={value & 0x1F}"
-    return f"{prefix} reg 0x{register:02X} = 0x{value:02X}"
+    if register == REG_FREQ_HIGH:
+        return f"{prefix} freq high 0x{value & FREQ_HIGH_MASK:X}"
+    if register == REG_CONTROL:
+        state = "on " if value & CONTROL_ENABLE else "off"
+        dda = " dda" if value & CONTROL_DDA else ""
+        return f"{prefix} {state} amp={value & AMPLITUDE_MASK}{dda}"
+    if register == REG_BALANCE:
+        return f"{prefix} balance L={value >> 4:X} R={value & NIBBLE_MASK:X}"
+    if register == REG_WAVE_DATA:
+        return f"{prefix} wave/dda {value & SAMPLE_MASK}"
+    if register == REG_NOISE:
+        state = "on" if value & NOISE_ENABLE else "off"
+        return f"{prefix} noise {state} freq={value & NOISE_FREQ_MASK}"
+    name = REGISTER_NAMES.get(register, "unused")
+    return f"{prefix} {name} reg 0x{register:02X} = 0x{value:02X}"
 
 
 def note_text(hz: float) -> str:
-    """Nearest note plus cents, for example 'A4 +03'."""
+    """Nearest note plus cents, for example 'A4+03'."""
     if hz <= 0 or hz > 20000:
         return "--"
     midi = 69 + 12 * math.log2(hz / 440.0)
