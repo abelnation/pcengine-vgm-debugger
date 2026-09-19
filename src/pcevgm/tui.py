@@ -208,7 +208,7 @@ class Debugger:
                           self._key_attr(cell))
         labels = top + keyboard.TOTAL_ROWS
         self._put(screen, labels, KEY_LEFT, keyboard.labels(), curses.color_pair(PAIR_DIM))
-        aside = "  ".join(f"ch{index} {why}" for index, why in keyboard.unpitched(state))
+        aside = "  ".join(f"ch{index} dda" for index in keyboard.sample_channels(state))
         self._put(screen, labels, KEY_LEFT + keyboard.WIDTH + 2, aside,
                   curses.color_pair(PAIR_DIM))
         return top + KEYBOARD_ROWS

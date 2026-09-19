@@ -109,14 +109,24 @@ class SoundingTests(unittest.TestCase):
         self.assertEqual(keyboard.sounding(state_with({0: C6})), {0: 60})
         self.assertLess(keyboard.sounding(state_with({0: 0}))[0], 0)
 
-    def test_unpitched_names_the_reason(self):
+    def test_sample_channels_reports_dda_only(self):
         state = state_with({0: C4}, control=0xDF)
         state.write(REG_CHANNEL_SELECT, 5)
         state.write(REG_FREQ_LOW, 0x10)
         state.write(REG_BALANCE, 0xFF)
         state.write(REG_CONTROL, LOUD)
         state.write(REG_NOISE, 0x9F)
-        self.assertEqual(keyboard.unpitched(state), [(0, "dda"), (5, "noise")])
+        self.assertEqual(keyboard.sample_channels(state), [0])
+
+    def test_a_noise_channel_is_named_nowhere(self):
+        state = state_with({5: C4})
+        state.write(REG_CHANNEL_SELECT, 5)
+        state.write(REG_NOISE, 0x9F)
+        self.assertEqual(keyboard.sounding(state), {})
+        self.assertEqual(keyboard.sample_channels(state), [])
+
+    def test_a_disabled_dda_channel_is_not_reported(self):
+        self.assertEqual(keyboard.sample_channels(state_with({0: C4}, control=0x5F)), [])
 
 
 class RenderTests(unittest.TestCase):

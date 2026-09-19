@@ -96,17 +96,17 @@ def sounding(state, floor_db: float = SILENCE_DB) -> dict:
     return out
 
 
-def unpitched(state) -> list:
-    """Enabled channels that make no pitch, as (channel, reason)."""
-    out = []
-    for index, channel in enumerate(state.channels):
-        if not channel.enabled:
-            continue
-        if channel.dda:
-            out.append((index, "dda"))
-        elif index >= FIRST_NOISE_CHANNEL and channel.noise_enabled:
-            out.append((index, "noise"))
-    return out
+def sample_channels(state) -> list:
+    """Enabled channels playing a sample through DDA instead of a pitch.
+
+    Noise channels are left out. The channel table already reports their noise
+    register, and naming them beside the board only adds clutter.
+    """
+    return [
+        index
+        for index, channel in enumerate(state.channels)
+        if channel.enabled and channel.dda
+    ]
 
 
 def _blank_rows():

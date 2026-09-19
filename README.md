@@ -87,6 +87,9 @@ earlier run so you can remove them yourself.
     channel fills the key. Two split it in half, one above the other. Four take
     a cell each. Beyond that the last cell shows `+`.
   - A pitch off the ends of the board marks the edge with `<` or `>`.
+  - A channel with noise enabled has no pitch, so the board leaves it out
+    entirely. The channel table reports its noise register. A channel in
+    DDA mode is named beside the board instead.
   - Press `k` to hide it. It hides itself below 29 terminal rows rather than
     push a channel off the table.
 - Channel table: two rows per PSG channel.
