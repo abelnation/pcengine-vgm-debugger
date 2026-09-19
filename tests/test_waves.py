@@ -103,6 +103,37 @@ class AudioTests(unittest.TestCase):
         self.assertEqual(max(abs(value) for value in frames), waves.WAV_PEAK)
 
 
+class NameTests(unittest.TestCase):
+    def test_stems_pad_to_at_least_two_digits(self):
+        self.assertEqual(waves.stem_names(3), ["wave-00", "wave-01", "wave-02"])
+
+    def test_stems_widen_past_a_hundred_waves(self):
+        stems = waves.stem_names(101)
+        self.assertEqual(stems[0], "wave-000")
+        self.assertEqual(stems[-1], "wave-100")
+
+    def test_names_map_each_table_to_its_stem(self):
+        vgm = make_vgm(upload(0, RAMP) + upload(1, FLAT))
+        names = waves.names_by_samples(waves.extract(vgm))
+        self.assertEqual(names[RAMP], "wave-00")
+        self.assertEqual(names[FLAT], "wave-01")
+
+    def test_an_unknown_table_has_no_name(self):
+        names = waves.names_by_samples(waves.extract(make_vgm(upload(0, RAMP))))
+        self.assertIsNone(names.get(FLAT))
+
+    def test_names_match_the_files_the_dump_writes(self):
+        vgm = make_vgm(upload(0, RAMP) + upload(1, FLAT))
+        found = waves.extract(vgm)
+        names = waves.names_by_samples(found)
+        with tempfile.TemporaryDirectory() as out:
+            report = waves.write_files(vgm, found, out)
+            self.assertEqual(sorted(names.values()), sorted(report["stems"]))
+            for samples, stem in names.items():
+                with open(os.path.join(out, stem + waves.PCM_SUFFIX), "rb") as handle:
+                    self.assertEqual(handle.read(), samples)
+
+
 class WriteTests(unittest.TestCase):
     def test_folder_name_appends_to_the_input_path(self):
         self.assertEqual(waves.folder_for("a/b.vgz"), "a/b.vgz.wavs")

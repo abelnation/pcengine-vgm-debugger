@@ -82,8 +82,9 @@ earlier run so you can remove them yourself.
     divider), `HZ` and `NOTE` (the divider as a pitch, with cents offset),
     `dB L` and `dB R` (attenuation per side), `AMP` and `BAL` (the raw
     amplitude and balance registers).
-  - Second row: the wave write index, the DDA sample while in DDA mode and
-    the noise register on channels 4 and 5, then a horizontal meter under each
+  - Second row: the name of the wave table the channel holds, the DDA sample
+    while in DDA mode and the noise register on channels 4 and 5, then a
+    horizontal meter under each
     of `dB L`, `dB R` and `AMP`. The level meters read empty at -60 dB and full
     at 0 dB. The `AMP` meter tracks the raw 0 to 31 register. Partial blocks
     give each meter character 8 steps.
@@ -96,6 +97,12 @@ earlier run so you can remove them yourself.
   reaches the pitch. The raw register byte stays on the line. The line dims
   unless the LFO is enabled at a non-zero depth.
 - Log: the command stream around the cursor. The current command is marked `>`.
+
+The wave name on a channel's second row is the file stem `--extract-waves`
+writes, so `wave-03` on channel 2 means that channel holds the table in
+`wave-03.pcm`. Run the dump once and you can hear any channel's timbre through
+`wave-03.long.wav`. A channel reads `wave  --` until its table matches a
+complete upload, which includes the start of every track.
 
 ## Keys
 

@@ -25,7 +25,10 @@ LEAD_WIDTH = 37  # everything up to the dB L column
 LEVEL_WIDTH = 6  # the dB L and dB R columns
 AMP_WIDTH = 3
 TAIL_WIDTH = 8  # the gap, the BAL column and the gap before WAVE
+UNKNOWN_WAVE = "wave  --"  # the table matches no complete upload
 from .player import HUC6280_WRITE, Timeline, build_descriptions
+from .waves import extract as extract_waves
+from .waves import names_by_samples
 from .vgm import SAMPLE_RATE, VgmFile
 
 FRAME_SAMPLES = 735  # one NTSC video frame
@@ -72,6 +75,8 @@ class Debugger:
         self.vgm = vgm
         self.timeline = Timeline(vgm)
         self.descriptions = build_descriptions(vgm)
+        # Lets a playing channel be matched to its --extract-waves file.
+        self.wave_names = names_by_samples(extract_waves(vgm))
         self.playing = False
         self.speed_index = 2
         self.writes_only = False
@@ -149,7 +154,7 @@ class Debugger:
             f"{channel.amplitude:3d}  {channel.balance_left:X}/{channel.balance_right:X}   "
         )
 
-        parts = [f"wave {channel.wave_index:2d}"]
+        parts = [self.wave_names.get(bytes(channel.waveform), UNKNOWN_WAVE)]
         if channel.dda:
             parts.append(f"dda {channel.dda_sample:2d}")
         if index >= FIRST_NOISE_CHANNEL:

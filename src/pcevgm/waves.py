@@ -149,6 +149,17 @@ def folder_for(path: str) -> str:
     return path + FOLDER_SUFFIX
 
 
+def stem_names(count: int) -> list:
+    """The file name stems the dump uses, one per wave, in first-use order."""
+    width = max(2, len(str(max(0, count - 1))))
+    return [f"wave-{index:0{width}d}" for index in range(count)]
+
+
+def names_by_samples(waves: list) -> dict:
+    """Map each wave table to its dump file stem, for cross referencing."""
+    return dict(zip((wave.samples for wave in waves), stem_names(len(waves))))
+
+
 def _time_text(sample: int) -> str:
     seconds = sample / SAMPLE_RATE
     minutes = int(seconds // 60)
@@ -196,8 +207,7 @@ def write_files(
     Returns a short report for the caller to print.
     """
     os.makedirs(out_dir, exist_ok=True)
-    width = max(2, len(str(max(0, len(waves) - 1))))
-    stems = [f"wave-{index:0{width}d}" for index in range(len(waves))]
+    stems = stem_names(len(waves))
 
     for wave, stem in zip(waves, stems):
         base = os.path.join(out_dir, stem)
