@@ -123,12 +123,14 @@ earlier run so you can remove them yourself.
     divider), `HZ` and `NOTE` (the divider as a pitch, with cents offset),
     `dB L` and `dB R` (attenuation per side), `AMP` and `BAL` (the raw
     amplitude and balance registers).
-  - Second row: the wave table the channel holds, the instrument the analysis
-    found, the DDA sample while in DDA mode and the noise register on channels
-    4 and 5, then a horizontal meter under each
-    of `dB L`, `dB R` and `AMP`. The level meters read empty at -60 dB and full
-    at 0 dB. The `AMP` meter tracks the raw 0 to 31 register. Partial blocks
-    give each meter character 8 steps.
+  - Second row: the instrument the analysis found, then the wave table and the
+    envelope that instrument is made of. The wave name comes from the chip, so
+    a table re-uploaded part way through a note still shows. Then a horizontal
+    meter under each of `dB L`, `dB R` and `AMP`. The level meters read empty
+    at -60 dB and full at 0 dB. The `AMP` meter tracks the raw 0 to 31
+    register. Partial blocks give each meter character 8 steps.
+  - Third row: the DDA sample while in DDA mode, and the noise register on
+    channels 4 and 5.
   - `WAVE` — the 32-entry wave table, drawn as a braille line three character
     rows tall. One character covers two samples and four dot rows, so three
     rows resolve twelve levels in sixteen columns. The dots between two

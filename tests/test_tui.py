@@ -28,12 +28,27 @@ class LayoutTests(unittest.TestCase):
         control = Command(0, 0, 0xB9, bytes((0x04, 0x9F)), 0)
         self.debugger = tui.Debugger(make_vgm([select, control]))
 
-    def test_head_and_detail_are_the_same_fixed_width(self):
+    def test_every_prefix_line_is_the_same_fixed_width(self):
         state = self.debugger.timeline.state
         for index in range(NUM_CHANNELS):
-            head, detail, _ = self.debugger._channel_text(index, state)
+            head, detail, extra, _ = self.debugger._channel_text(index, state)
             self.assertEqual(len(head), tui.HEAD_WIDTH, index)
             self.assertEqual(len(detail), tui.HEAD_WIDTH, index)
+            if extra:
+                self.assertEqual(len(extra), tui.HEAD_WIDTH, index)
+
+    def test_the_second_line_names_instrument_then_wave_then_envelope(self):
+        state = self.debugger.timeline.state
+        _, detail, _, _ = self.debugger._channel_text(0, state)
+        # A placeholder reads "wave  --", so match on position, not on split().
+        found = [detail.index(name) for name in ("inst", "wave", "env")]
+        self.assertEqual(found, sorted(found), detail)
+
+    def test_the_third_line_carries_the_noise_register(self):
+        state = self.debugger.timeline.state
+        self.assertEqual(self.debugger._channel_text(0, state)[2], "")
+        extra = self.debugger._channel_text(4, state)[2]
+        self.assertIn("noise", extra)
 
     def test_the_envelope_sits_after_the_wave_plot(self):
         self.assertEqual(
@@ -43,7 +58,7 @@ class LayoutTests(unittest.TestCase):
 
     def test_the_wave_plot_has_one_row_per_key_row(self):
         state = self.debugger.timeline.state
-        _, _, plot = self.debugger._channel_text(0, state)
+        _, _, _, plot = self.debugger._channel_text(0, state)
         self.assertEqual(len(plot), tui.WAVE_ROWS)
         self.assertTrue(all(len(row) == plot_width(WAVE_LENGTH) for row in plot))
 

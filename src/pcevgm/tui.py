@@ -31,6 +31,7 @@ ENVELOPE_GAP = 2  # blank columns between the wave plot and the envelope plot
 ENVELOPE_LEFT = HEAD_WIDTH + plot_width(WAVE_LENGTH) + ENVELOPE_GAP
 UNKNOWN_WAVE = "wave  --"  # the table matches no complete upload
 UNKNOWN_INSTRUMENT = "inst  --"  # no note detected on this channel now
+UNKNOWN_ENVELOPE = "env  --"
 from . import keyboard
 from .notes import analyse
 from .player import HUC6280_WRITE, Timeline, build_descriptions
@@ -161,8 +162,22 @@ class Debugger:
         self._put(screen, 4, 1 + filled, "─" * (bar_width - filled), curses.color_pair(PAIR_DIM))
         return 6
 
+    def _identity(self, index: int, channel):
+        """What the channel is playing: instrument, then its wave and envelope."""
+        found = self.analysis.instrument_at(index, self.timeline.sample)
+        if found is None:
+            instrument, envelope = UNKNOWN_INSTRUMENT, UNKNOWN_ENVELOPE
+        else:
+            instrument = self.analysis.instrument_names[found]
+            _, envelope_id = self.analysis.instruments[found]
+            envelope = self.analysis.envelope_names[envelope_id]
+        # The wave comes from the chip, not the instrument, so a table
+        # re-uploaded part way through a note still shows.
+        wave = self.wave_names.get(bytes(channel.waveform), UNKNOWN_WAVE)
+        return instrument, wave, envelope
+
     def _channel_text(self, index: int, state):
-        """Head line, meter line and one wave string per character row."""
+        """Head line, meter line, extras line and one wave string per row."""
         channel = state.channels[index]
         hz = channel.frequency_hz(state.clock)
         levels = channel.levels_db(state.master_left, state.master_right)
@@ -181,22 +196,21 @@ class Debugger:
             f"{channel.amplitude:3d}  {channel.balance_left:X}/{channel.balance_right:X}   "
         )
 
-        parts = [self.wave_names.get(bytes(channel.waveform), UNKNOWN_WAVE)]
-        found = self.analysis.instrument_at(index, self.timeline.sample)
-        parts.append(
-            UNKNOWN_INSTRUMENT
-            if found is None
-            else self.analysis.instrument_names[found]
-        )
+        lead = "      " + "   ".join(self._identity(index, channel))
+        lead = lead[:LEAD_WIDTH].ljust(LEAD_WIDTH)
+
+        extras = []
         if channel.dda:
-            parts.append(f"dda {channel.dda_sample:2d}")
+            extras.append(f"dda {channel.dda_sample:2d}")
         if index >= FIRST_NOISE_CHANNEL:
-            parts.append(
+            extras.append(
                 f"noise on {channel.noise_frequency:2d}"
                 if channel.noise_enabled
                 else "noise off"
             )
-        lead = ("      " + "   ".join(parts))[:LEAD_WIDTH].ljust(LEAD_WIDTH)
+        extra = ""
+        if extras:
+            extra = ("      " + "   ".join(extras)).ljust(HEAD_WIDTH)[:HEAD_WIDTH]
 
         if levels is None:
             bars = [" " * LEVEL_WIDTH, " " * LEVEL_WIDTH]
@@ -205,7 +219,7 @@ class Debugger:
         bars.append(meter(channel.amplitude / AMPLITUDE_MASK, AMP_WIDTH))
         detail = lead + "  ".join(bars) + " " * TAIL_WIDTH
 
-        return head, detail, wave_rows(channel.waveform)
+        return head, detail, extra, wave_rows(channel.waveform)
 
     def _key_attr(self, cell) -> int:
         if cell.channel is not None:
@@ -239,7 +253,7 @@ class Debugger:
         state = self.timeline.state
         row = top + 1
         for index in range(NUM_CHANNELS):
-            head, detail, plot = self._channel_text(index, state)
+            head, detail, extra, plot = self._channel_text(index, state)
             channel = state.channels[index]
             attr = (
                 curses.color_pair(PAIR_ACTIVE)
@@ -250,9 +264,9 @@ class Debugger:
                 attr |= curses.A_BOLD
             # The head sits on the first row, the detail under it. The plot
             # spans every row, so it keeps the channel colour throughout.
-            prefix = (head, detail)
+            prefix = (head, detail, extra)
             for line in range(WAVE_ROWS):
-                if line < len(prefix):
+                if line < len(prefix) and prefix[line]:
                     self._put(screen, row + line, 0, prefix[line],
                               attr if line == 0 else curses.color_pair(PAIR_DIM))
                 self._put(screen, row + line, HEAD_WIDTH, plot[line], attr)
