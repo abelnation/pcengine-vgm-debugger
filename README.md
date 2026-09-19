@@ -189,8 +189,6 @@ earlier run so you can remove them yourself.
     below the bottom of the fade: visible, but under every value on the row.
   - All of the colour needs a 256 colour terminal. On fewer colours every
     sounding field falls back to one dim shade.
-    All of this needs a 256 colour terminal; on fewer colours those fields
-    fall back to one dim shade.
 
 The wave name on a channel's second row is the file stem `--extract-waves`
 writes, so `wave-03` on channel 2 means that channel holds the table in
