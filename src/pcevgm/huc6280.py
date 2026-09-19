@@ -66,9 +66,13 @@ def lfo_depth_factor(depth: int) -> int:
     return LFO_DEPTH_FACTORS[depth & LFO_DEPTH_MASK]
 BLOCKS = "▁▂▃▄▅▆▇█"  # 8 fill levels, for the one-row sparkline
 HBLOCKS = "▏▎▍▌▋▊▉█"  # the same 8 steps lying down, for meters
-SCAN_LINES = "⎽⎼─⎻⎺"  # five line heights inside one cell, low to high
-WAVE_ROWS = 2  # character rows a plot uses
-PLOT_LEVELS = WAVE_ROWS * len(SCAN_LINES)  # 10
+# A braille cell holds two dot columns and four dot rows.
+BRAILLE_BASE = 0x2800
+BRAILLE_DOTS = ((0x01, 0x02, 0x04, 0x40), (0x08, 0x10, 0x20, 0x80))  # [column][row]
+BRAILLE_COLUMNS = 2
+BRAILLE_ROWS = 4
+WAVE_ROWS = 3  # character rows a plot uses
+PLOT_LEVELS = WAVE_ROWS * BRAILLE_ROWS  # 12
 
 # Amplitude steps are 1.5 dB. Balance steps are 3.0 dB, so two amplitude units.
 BALANCE_WEIGHT = 2
@@ -256,21 +260,33 @@ def sparkline(wave) -> str:
     return "".join(BLOCKS[min(levels - 1, value * levels // WAVE_LENGTH)] for value in wave)
 
 
-def wave_rows(wave):
-    """Draw a sample series as a line, WAVE_ROWS characters tall.
+def plot_width(samples: int) -> int:
+    """Character columns a plot of this many samples takes."""
+    return -(-samples // BRAILLE_COLUMNS)
 
-    One column per sample, one mark per column. A filled bar would read as an
-    area chart; these characters draw the curve itself. Each cell carries five
-    line heights, so WAVE_ROWS of 2 resolves PLOT_LEVELS steps. Row 0 is the
-    top of the plot.
+
+def wave_rows(wave):
+    """Draw a sample series as a connected line, WAVE_ROWS characters tall.
+
+    One braille character covers two samples and four dot rows, so WAVE_ROWS of
+    3 resolves PLOT_LEVELS steps in half the width a filled bar would need. The
+    dots between two neighbouring samples are lit as well, so the line stays
+    joined instead of reading as scattered points. Row 0 is the top.
     """
-    heights = len(SCAN_LINES)
-    rows = [[" "] * len(wave) for _ in range(WAVE_ROWS)]
+    grid = [[0] * plot_width(len(wave)) for _ in range(WAVE_ROWS)]
+    previous = None
     for column, value in enumerate(wave):
         level = min(PLOT_LEVELS - 1, value * PLOT_LEVELS // (SAMPLE_MASK + 1))
-        line = PLOT_LEVELS - 1 - level  # counting down from the top
-        rows[line // heights][column] = SCAN_LINES[heights - 1 - line % heights]
-    return ["".join(row) for row in rows]
+        low, high = level, level
+        if previous is not None:
+            low, high = min(level, previous), max(level, previous)
+        previous = level
+        for lit in range(low, high + 1):
+            line = PLOT_LEVELS - 1 - lit  # counting down from the top
+            grid[line // BRAILLE_ROWS][column // BRAILLE_COLUMNS] |= BRAILLE_DOTS[
+                column % BRAILLE_COLUMNS
+            ][line % BRAILLE_ROWS]
+    return ["".join(chr(BRAILLE_BASE + cell) for cell in row) for row in grid]
 
 
 def db_fraction(db: float) -> float:

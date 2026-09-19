@@ -1,7 +1,7 @@
 import unittest
 
 from pcevgm import tui
-from pcevgm.huc6280 import NUM_CHANNELS, WAVE_LENGTH
+from pcevgm.huc6280 import NUM_CHANNELS, WAVE_LENGTH, plot_width
 from pcevgm.vgm import Command, Gd3, VgmFile, VgmHeader
 
 
@@ -37,14 +37,15 @@ class LayoutTests(unittest.TestCase):
 
     def test_the_envelope_sits_after_the_wave_plot(self):
         self.assertEqual(
-            tui.ENVELOPE_LEFT, tui.HEAD_WIDTH + WAVE_LENGTH + tui.ENVELOPE_GAP
+            tui.ENVELOPE_LEFT,
+            tui.HEAD_WIDTH + plot_width(WAVE_LENGTH) + tui.ENVELOPE_GAP,
         )
 
     def test_the_wave_plot_has_one_row_per_key_row(self):
         state = self.debugger.timeline.state
         _, _, plot = self.debugger._channel_text(0, state)
         self.assertEqual(len(plot), tui.WAVE_ROWS)
-        self.assertTrue(all(len(row) == WAVE_LENGTH for row in plot))
+        self.assertTrue(all(len(row) == plot_width(WAVE_LENGTH) for row in plot))
 
     def test_a_channel_with_no_note_has_no_envelope_plot(self):
         self.assertEqual(self.debugger._envelope_plot(3), (None, 0))

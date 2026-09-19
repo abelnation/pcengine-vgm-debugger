@@ -129,11 +129,12 @@ earlier run so you can remove them yourself.
     of `dB L`, `dB R` and `AMP`. The level meters read empty at -60 dB and full
     at 0 dB. The `AMP` meter tracks the raw 0 to 31 register. Partial blocks
     give each meter character 8 steps.
-  - `WAVE` — the 32-entry wave table, drawn as a line two character rows tall.
-    Each cell carries five line heights, so two rows resolve ten levels. One
-    column per sample, one mark per column.
+  - `WAVE` — the 32-entry wave table, drawn as a braille line three character
+    rows tall. One character covers two samples and four dot rows, so three
+    rows resolve twelve levels in sixteen columns. The dots between two
+    neighbouring samples are lit too, so the line stays joined.
   - `ENVELOPE` — the envelope of the instrument sounding on the channel, one
-    column per amplitude step, drawn the same way. The step the note has
+    column per two amplitude steps, drawn the same way. The step the note has
     reached shows in reverse video. The column is blank when the detector
     finds no note on that channel.
 - Master line: the master balance, the selected channel and the write count.
@@ -200,11 +201,13 @@ python -m unittest discover -s tests -t .
   `NOTE` column carries the cents offset.
 - A channel counts as sounding on the keyboard above -40 dB. At -60 dB the
   board fills with channels parked on divider 0 at 27 Hz.
-- The wave and envelope plots use `U+23BA` to `U+23BD` alongside `U+2500`.
-  A font without those four scan-line glyphs will show boxes.
-- The keyboard needs about 74 terminal columns and 29 rows. The envelope
-  plot starts at column 98, so the channel table wants about 130 columns to
-  show a long envelope whole.
+- The wave and envelope plots use braille, `U+2800` to `U+28FF`. A font
+  without braille glyphs will show boxes. Braille also halves the
+  horizontal resolution: two samples share one character column.
+- A channel takes three rows, so the table is 22 rows. The keyboard needs
+  another six and hides itself below 35 terminal rows.
+- The keyboard needs about 74 columns. The envelope plot starts at column
+  82, so about 115 columns shows a long envelope whole.
 - Note detection is a heuristic tuned on one game's sound driver. A driver
   that gates every note would need no heuristic; one that uses the hardware
   LFO for vibrato would defeat the pitch test.

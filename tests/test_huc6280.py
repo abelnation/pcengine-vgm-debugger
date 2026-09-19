@@ -6,8 +6,10 @@ from pcevgm.huc6280 import (
     HBLOCKS,
     MAX_VOLUME_STEPS,
     METER_FLOOR_DB,
+    BRAILLE_BASE,
+    BRAILLE_DOTS,
+    BRAILLE_ROWS,
     PLOT_LEVELS,
-    SCAN_LINES,
     SAMPLE_MASK,
     WAVE_LENGTH,
     WAVE_ROWS,
@@ -18,6 +20,7 @@ from pcevgm.huc6280 import (
     lfo_depth_factor,
     meter,
     note_text,
+    plot_width,
     sparkline,
     wave_rows,
 )
@@ -120,40 +123,54 @@ class LevelTests(unittest.TestCase):
         self.assertAlmostEqual(right, 0.0)
 
 
+def lit_levels(rows, column=0, dot_column=0):
+    """Levels lit in one dot column, 0 at the bottom."""
+    out = set()
+    for row, line in enumerate(rows):
+        cell = ord(line[column]) - BRAILLE_BASE
+        for dot_row in range(BRAILLE_ROWS):
+            if cell & BRAILLE_DOTS[dot_column][dot_row]:
+                out.add(PLOT_LEVELS - 1 - (row * BRAILLE_ROWS + dot_row))
+    return out
+
+
 def plot_level(value):
     """Read a one-sample plot back as a level, 0 at the bottom."""
-    rows = wave_rows([value])
-    marked = [(row, line[0]) for row, line in enumerate(rows) if line[0] != " "]
-    assert len(marked) == 1, marked
-    row, glyph = marked[0]
-    within = len(SCAN_LINES) - 1 - SCAN_LINES.index(glyph)
-    return PLOT_LEVELS - 1 - (row * len(SCAN_LINES) + within)
+    levels = lit_levels(wave_rows([value]))
+    assert len(levels) == 1, levels
+    return levels.pop()
 
 
 class WavePlotTests(unittest.TestCase):
-    def test_shape_is_rows_by_wave_length(self):
+    def test_shape_is_rows_by_half_the_sample_count(self):
         rows = wave_rows([0] * WAVE_LENGTH)
         self.assertEqual(len(rows), WAVE_ROWS)
         for row in rows:
-            self.assertEqual(len(row), WAVE_LENGTH)
+            self.assertEqual(len(row), plot_width(WAVE_LENGTH))
 
-    def test_a_line_leaves_one_mark_per_column(self):
-        rows = wave_rows(list(range(WAVE_LENGTH)))
-        for column in range(WAVE_LENGTH):
-            marks = [row[column] for row in rows if row[column] != " "]
-            self.assertEqual(len(marks), 1, column)
+    def test_an_odd_sample_count_still_fits(self):
+        self.assertEqual(plot_width(1), 1)
+        self.assertEqual(plot_width(3), 2)
+        self.assertEqual(len(wave_rows([0, 0, 0])[0]), 2)
 
     def test_the_lowest_sample_sits_at_the_bottom(self):
-        top, bottom = wave_rows([0])
-        self.assertEqual(top, " ")
-        self.assertEqual(bottom, SCAN_LINES[0])
+        rows = wave_rows([0])
         self.assertEqual(plot_level(0), 0)
+        self.assertEqual(rows[0], chr(BRAILLE_BASE))  # the top row stays blank
 
     def test_the_highest_sample_sits_at_the_top(self):
-        top, bottom = wave_rows([SAMPLE_MASK])
-        self.assertEqual(top, SCAN_LINES[-1])
-        self.assertEqual(bottom, " ")
+        rows = wave_rows([SAMPLE_MASK])
         self.assertEqual(plot_level(SAMPLE_MASK), PLOT_LEVELS - 1)
+        self.assertEqual(rows[-1], chr(BRAILLE_BASE))  # the bottom row stays blank
+
+    def test_a_jump_lights_the_dots_between(self):
+        rows = wave_rows([0, SAMPLE_MASK])
+        self.assertEqual(lit_levels(rows, dot_column=1), set(range(PLOT_LEVELS)))
+
+    def test_neighbouring_samples_light_only_their_own_levels(self):
+        rows = wave_rows([0, 0])
+        self.assertEqual(lit_levels(rows, dot_column=0), {0})
+        self.assertEqual(lit_levels(rows, dot_column=1), {0})
 
     def test_every_level_is_reachable(self):
         levels = {plot_level(value) for value in range(SAMPLE_MASK + 1)}

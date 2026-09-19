@@ -14,6 +14,7 @@ from .huc6280 import (
     WAVE_LENGTH,
     WAVE_ROWS,
     db_fraction,
+    plot_width,
     lfo_depth_factor,
     meter,
     note_text,
@@ -27,7 +28,7 @@ AMP_WIDTH = 3
 TAIL_WIDTH = 8  # the gap, the BAL column and the gap before WAVE
 HEAD_WIDTH = LEAD_WIDTH + 2 * LEVEL_WIDTH + AMP_WIDTH + 4 + TAIL_WIDTH  # 64
 ENVELOPE_GAP = 2  # blank columns between the wave plot and the envelope plot
-ENVELOPE_LEFT = HEAD_WIDTH + WAVE_LENGTH + ENVELOPE_GAP
+ENVELOPE_LEFT = HEAD_WIDTH + plot_width(WAVE_LENGTH) + ENVELOPE_GAP
 UNKNOWN_WAVE = "wave  --"  # the table matches no complete upload
 UNKNOWN_INSTRUMENT = "inst  --"  # no note detected on this channel now
 from . import keyboard
@@ -249,20 +250,23 @@ class Debugger:
                 attr |= curses.A_BOLD
             # The head sits on the first row, the detail under it. The plot
             # spans every row, so it keeps the channel colour throughout.
+            prefix = (head, detail)
             for line in range(WAVE_ROWS):
-                self._put(screen, row + line, 0, head if line == 0 else detail,
-                          attr if line == 0 else curses.color_pair(PAIR_DIM))
-                self._put(screen, row + line, len(head), plot[line], attr)
+                if line < len(prefix):
+                    self._put(screen, row + line, 0, prefix[line],
+                              attr if line == 0 else curses.color_pair(PAIR_DIM))
+                self._put(screen, row + line, HEAD_WIDTH, plot[line], attr)
             # Tint the channel number to match its key on the keyboard.
             self._put(screen, row, 1, f"{index:2d}",
                       curses.color_pair(PAIR_CHANNEL_FIRST + index) | curses.A_BOLD)
             envelope, step = self._envelope_plot(index)
             if envelope is not None:
+                # One character covers two steps, so the cursor does too.
+                cursor = min(step // 2, len(envelope[0]) - 1)
                 for line in range(WAVE_ROWS):
                     self._put(screen, row + line, ENVELOPE_LEFT, envelope[line], attr)
-                    # Mark the step the note has reached.
-                    self._put(screen, row + line, ENVELOPE_LEFT + step,
-                              envelope[line][step], attr | curses.A_REVERSE)
+                    self._put(screen, row + line, ENVELOPE_LEFT + cursor,
+                              envelope[line][cursor], attr | curses.A_REVERSE)
             row += WAVE_ROWS
 
         master = (
