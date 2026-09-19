@@ -50,7 +50,7 @@ pcevgm file.vgm --dump 200         # first 200 decoded commands
 pcevgm file.vgm --extract-waves    # write the wave tables to file.vgm.wavs/
 pcevgm file.vgm --notes 100        # instrument table, then the first 100 notes
 pcevgm file.vgm --tracker          # tracker grid to file.vgm.tracker.txt
-pcevgm file.vgm --ableton          # a Simpler preset per instrument
+pcevgm file.vgm --ableton          # Simpler presets, an envelope set per wave
 ```
 
 ## Tracker grid
@@ -73,9 +73,9 @@ columns come from the detector below, so they carry its guesswork.
 
 ## Ableton Live presets
 
-`--ableton` writes one Simpler preset per instrument into an `ableton` folder
-inside the wave dump. Run `--extract-waves` first, since each preset points at
-a `wave-NN.wav`.
+`--ableton` writes Simpler presets into an `ableton` folder inside the wave
+dump: a standard set of envelopes on every wave table. Run `--extract-waves`
+first, since each preset points at a `wave-NN.wav`.
 
 ```sh
 pcevgm song.vgz --extract-waves
@@ -96,46 +96,31 @@ The single-cycle wave files suit Simpler directly: they are tuned to C4, which
 is `RootKey 60`, so no detune is needed. The preset loops the whole 32 frames,
 because a single cycle played once lasts 3.8 ms.
 
-An envelope maps onto Simpler's ADSR by construction. A HuC6280 envelope is a
-run of amplitude steps written one per video frame, each step 1.5 dB:
+Every wave gets the same handful of envelopes, named so you can reach for one:
 
-- the rise to the peak, if any, becomes the attack
-- the fall from the peak becomes the decay
-- the level it settles at becomes the sustain
-- carrying that same fall on down to Simpler's -70 dB floor gives the release
+| name | attack | decay | sustain | release | what it is |
+| --- | --- | --- | --- | --- | --- |
+| `hold` | 0.1 | none | full | 50 | the raw oscillator, key down means tone |
+| `stab` | 0.1 | 60 | silence | 20 | near the tenth percentile decay, percussive |
+| `pluck` | 0.1 | 180 | silence | 30 | the median decay of the rips |
+| `decay` | 0.1 | 800 | silence | 50 | near the ninetieth percentile decay |
+| `tail` | 0.1 | 200 | -12 dB | 2000 | drops fast, then rings out |
+| `swell` | 300 | 500 | -6 dB | 400 | the slow attacks, whose longest measured 440 ms |
 
-An envelope that reaches amplitude 0 was cut by the chip, so it sustains at the
-floor and releases within a frame. Step timing comes from the median real note
-length of the instrument, since the canonical envelope carries shape but not
-duration.
+Times are milliseconds. The values sit on the percentiles of the envelopes the
+sample rips actually play, measured over the 803 instruments that sound more
+than once: decay runs from 16 ms at the tenth percentile to 837 at the
+ninetieth, release from 22 to 1680, and 27% of envelopes fall to silence while
+73% settle and hold.
 
-### Fewer presets
+`0.1` is not a rounded zero. Simpler's attack range starts there, which is what
+Live writes with the knob fully down, and one wave cycle at C4 lasts 3.82 ms, so
+an attack of 0.1 ms finishes inside 3% of a single cycle.
 
-Instruments that end up sounding the same share one preset. A preset is named
-for what it is rather than which instrument it came from:
-
-```
-wave-01 a23 d187 s-12 r904.adv
-```
-
-the wave table it plays, then attack, decay and release in whole milliseconds
-and the sustain in dB below the peak. Names sort by wave in Live's browser.
-
-Two settings match when their times agree and their sustains agree:
-
-- how far two times may differ depends on how long they are. A 20 ms gap is
-  the difference between a click and a pluck at 30 ms, and nothing at all at
-  900 ms, so the allowance climbs with the value: 1 ms below 1 ms, 5 ms below
-  10, 25 ms below 100, 200 ms below 1000, and a fifth of the value beyond that.
-  `--preset-tolerance` scales all of it, 1 by default, 0 for an exact match.
-- a sustain within 1.5 dB is the same level, because that is one step of the
-  chip's own amplitude register
-
-An instrument also needs `--min-notes` notes, 2 by default, to lead a preset of
-its own. One that fires once is usually the detector's own guesswork; it still
-joins a preset when one fits. Across the sample rips this takes 1,059
-instruments down to 451 presets while 99% of notes keep one. Pass
-`--min-notes 1 --preset-tolerance 0` for a preset per instrument.
+A preset is named for what it is, `wave-01 pluck.adv`, so the browser sorts
+every envelope of one wave together. `--envelopes hold,pluck,tail` writes a
+subset. The count is exactly waves times envelopes, which for a track with
+seven waves and all six envelopes is 42 presets.
 
 ### Where the samples live
 

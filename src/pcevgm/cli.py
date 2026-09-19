@@ -133,36 +133,40 @@ def _dump_tracker(vgm, path) -> int:
     return 0
 
 
-def _export_ableton(vgm, out_dir, library, sample_dir, tolerance, min_notes) -> int:
-    analysis = notes_module.analyse(vgm)
-    if not analysis.instruments:
-        print("pcevgm: the detector found no instruments", file=sys.stderr)
-        return 1
+def _export_ableton(vgm, out_dir, library, sample_dir, names) -> int:
     wave_dir = waves_module.folder_for(vgm.path)
     if not os.path.isdir(wave_dir):
         print(f"pcevgm: run --extract-waves first, {wave_dir} is missing", file=sys.stderr)
         return 1
-    out_dir = out_dir or os.path.join(wave_dir, ableton_module.FOLDER)
-    written = ableton_module.write_presets(
-        vgm, analysis, wave_dir, out_dir, library or "", sample_dir or "",
-        tolerance, min_notes,
-    )
-    if not written:
-        print("pcevgm: no instrument matched an extracted wave", file=sys.stderr)
+    if not ableton_module.wave_files(wave_dir):
+        print(f"pcevgm: {wave_dir} holds no wave files", file=sys.stderr)
         return 1
-    print(f"{len(written)} Simpler presets from {len(analysis.instruments)} "
-          f"instruments -> {out_dir}")
+    out_dir = out_dir or os.path.join(wave_dir, ableton_module.FOLDER)
+    try:
+        written = ableton_module.write_presets(
+            wave_dir, out_dir, library or "", sample_dir or "", names
+        )
+    except ValueError as error:
+        print(f"pcevgm: {error}. Choose from: {', '.join(ableton_module.NAMES)}",
+              file=sys.stderr)
+        return 1
+    tables = len(ableton_module.wave_files(wave_dir))
+    shapes = len(written) // max(1, tables)
+    print(f"{len(written)} Simpler presets, {shapes} envelopes on {tables} waves"
+          f" -> {out_dir}")
     if not sample_dir:
         print("pcevgm: without --sample-dir a preset carries only an absolute"
               " sample path", file=sys.stderr)
-    print(f"{'preset':30} {'envelope':9} "
-          f"{'attack':>8} {'decay':>9} {'sustain':>8} {'release':>9} "
-          f"{'covers':>7} {'notes':>6}")
-    for name, _, envelope, values, instruments, notes in written:
-        attack, decay, sustain, release = values
-        print(f"{name:30} {envelope:9} "
-              f"{attack:8.1f} {decay:9.1f} {sustain:8.4f} {release:9.1f} "
-              f"{instruments:7d} {notes:6d}")
+    print(f"{'envelope':9} {'attack':>7} {'decay':>8} {'sustain':>9} {'release':>8}"
+          f"  {'what it is'}")
+    for envelope in ableton_module.chosen(names):
+        attack, decay, sustain, release = ableton_module.values(envelope)
+        if envelope.sustain_db <= -ableton_module.FLOOR_DB:
+            level = "silence"
+        else:
+            level = f"{envelope.sustain_db:g} dB"
+        print(f"{envelope.name:9} {attack:7g} {decay:8g} {level:>9} {release:8g}"
+              f"  {envelope.note}")
     return 0
 
 
@@ -198,22 +202,11 @@ def main(argv=None) -> int:
         " (default: the ableton folder inside the wave dump)",
     )
     parser.add_argument(
-        "--preset-tolerance",
-        type=float,
-        default=ableton_module.TOLERANCE,
-        metavar="F",
-        help="scales how far two envelope times may differ and still share a"
-        " preset; the allowance itself grows with the time, so 25 ms at 30 ms"
-        f" and 200 ms at 900 ms (default {ableton_module.TOLERANCE:g},"
-        " 0 demands an exact match)",
-    )
-    parser.add_argument(
-        "--min-notes",
-        type=int,
-        default=ableton_module.MIN_NOTES,
-        metavar="N",
-        help="an instrument needs this many notes to get a preset of its own"
-        f" (default {ableton_module.MIN_NOTES})",
+        "--envelopes",
+        metavar="LIST",
+        help="which envelopes to write, comma separated, from "
+        + ", ".join(ableton_module.NAMES)
+        + " (default all of them)",
     )
     parser.add_argument(
         "--sample-dir",
@@ -284,9 +277,9 @@ def main(argv=None) -> int:
     if args.notes is not None:
         return _print_notes(vgm, args.notes)
     if args.ableton is not None:
+        names = args.envelopes.split(",") if args.envelopes else ()
         return _export_ableton(
-            vgm, args.ableton, args.library, args.sample_dir,
-            args.preset_tolerance, args.min_notes,
+            vgm, args.ableton, args.library, args.sample_dir, names
         )
     if args.tracker is not None:
         return _dump_tracker(vgm, args.tracker)

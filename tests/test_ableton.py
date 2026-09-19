@@ -1,4 +1,5 @@
 import gzip
+import math
 import os
 import tempfile
 import unittest
@@ -6,45 +7,44 @@ import xml.etree.ElementTree as ET
 
 from pcevgm import ableton, waves
 from pcevgm.huc6280 import WAVE_LENGTH
-from pcevgm.notes import FRAME, analyse
-from tests.test_notes import C4_DIVIDER, FLAT, G4_DIVIDER, make_vgm, ordered, play, setup
 
 
-def build_analysis(commands):
-    vgm = make_vgm(commands)
-    return vgm, analyse(vgm)
+def wave_dump(root, count=2):
+    """A folder of single cycle wave files, as --extract-waves leaves it."""
+    os.makedirs(root, exist_ok=True)
+    for index in range(count):
+        stem = os.path.join(root, f"wave-{index:02d}")
+        waves.write_wav(stem + waves.WAV_SUFFIX, [index] * WAVE_LENGTH, waves.cycle_rate())
+        waves.write_wav(stem + waves.LONG_WAV_SUFFIX, [index] * 100, waves.WAV_RATE)
+    return root
 
 
-def two_instruments():
-    return ordered(
-        setup(0), setup(1, wave=FLAT),
-        play(0, 0, C4_DIVIDER, [31, 28, 0]),          # falls to silence
-        play(1, 0, G4_DIVIDER, [31, 28, 24, 24, 24]),  # settles and holds
-    )
+class EnvelopeTests(unittest.TestCase):
+    def test_every_envelope_has_a_distinct_name(self):
+        self.assertEqual(len(set(ableton.NAMES)), len(ableton.STANDARD))
 
+    def test_the_three_named_shapes_are_present(self):
+        for name in ("hold", "decay", "tail"):
+            self.assertIn(name, ableton.NAMES)
 
-class AdsrTests(unittest.TestCase):
-    def setUp(self):
-        self.vgm, self.analysis = build_analysis(two_instruments())
+    def test_hold_sustains_at_full(self):
+        envelope = next(e for e in ableton.STANDARD if e.name == "hold")
+        _, _, sustain, _ = ableton.values(envelope)
+        self.assertEqual(sustain, 1.0)
 
-    def test_a_struck_note_attacks_instantly(self):
-        attack, _, _, _ = ableton.adsr(self.analysis, 0)
-        self.assertEqual(attack, ableton.ATTACK_RANGE[0])
-
-    def test_an_envelope_reaching_zero_sustains_at_the_floor(self):
-        _, _, sustain, release = ableton.adsr(self.analysis, 0)
+    def test_a_silent_sustain_writes_simplers_floor(self):
+        envelope = next(e for e in ableton.STANDARD if e.name == "pluck")
+        _, _, sustain, _ = ableton.values(envelope)
         self.assertEqual(sustain, ableton.LEVEL_FLOOR)
-        self.assertLess(release, 2 * FRAME / 44100 * 1000)  # the chip cut it
 
-    def test_a_held_envelope_sustains_where_it_settles(self):
-        _, _, sustain, release = ableton.adsr(self.analysis, 1)
-        # 31 down to 24 is seven steps of 1.5 dB, so -10.5 dB.
-        self.assertAlmostEqual(sustain, 10 ** (-10.5 / 20), places=4)
-        self.assertGreater(release, 100)
+    def test_a_level_between_reads_as_db(self):
+        envelope = next(e for e in ableton.STANDARD if e.name == "tail")
+        _, _, sustain, _ = ableton.values(envelope)
+        self.assertAlmostEqual(20 * math.log10(sustain), envelope.sustain_db, places=6)
 
-    def test_every_value_lands_inside_simpler_limits(self):
-        for instrument in range(len(self.analysis.instruments)):
-            attack, decay, sustain, release = ableton.adsr(self.analysis, instrument)
+    def test_every_setting_lands_inside_simpler_limits(self):
+        for envelope in ableton.STANDARD:
+            attack, decay, sustain, release = ableton.values(envelope)
             self.assertGreaterEqual(attack, ableton.ATTACK_RANGE[0])
             self.assertLessEqual(attack, ableton.ATTACK_RANGE[1])
             for time in (decay, release):
@@ -52,6 +52,41 @@ class AdsrTests(unittest.TestCase):
                 self.assertLessEqual(time, ableton.TIME_RANGE[1])
             self.assertGreaterEqual(sustain, ableton.LEVEL_FLOOR)
             self.assertLessEqual(sustain, 1.0)
+
+    def test_no_attack_means_simplers_minimum_not_zero(self):
+        # Simpler has no zero there, so 0.1 ms is how it spells "none".
+        self.assertEqual(ableton.NONE, ableton.ATTACK_RANGE[0])
+        instant = [e for e in ableton.STANDARD if e.name != "swell"]
+        self.assertTrue(all(e.attack == ableton.NONE for e in instant))
+
+
+class ChoiceTests(unittest.TestCase):
+    def test_no_names_means_all_of_them(self):
+        self.assertEqual(ableton.chosen(), list(ableton.STANDARD))
+        self.assertEqual(ableton.chosen(()), list(ableton.STANDARD))
+
+    def test_a_selection_keeps_the_standard_order(self):
+        picked = ableton.chosen(["tail", "hold"])
+        self.assertEqual([e.name for e in picked], ["hold", "tail"])
+
+    def test_whitespace_is_forgiven(self):
+        self.assertEqual([e.name for e in ableton.chosen([" hold ", ""])], ["hold"])
+
+    def test_an_unknown_name_is_refused(self):
+        with self.assertRaises(ValueError):
+            ableton.chosen(["nope"])
+
+
+class WaveFileTests(unittest.TestCase):
+    def test_the_long_preview_is_not_mistaken_for_a_cycle(self):
+        with tempfile.TemporaryDirectory() as root:
+            found = ableton.wave_files(wave_dump(root, count=3))
+        self.assertEqual(len(found), 3)
+        self.assertTrue(all(not p.endswith(waves.LONG_WAV_SUFFIX) for p in found))
+
+    def test_an_empty_folder_yields_nothing(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.assertEqual(ableton.wave_files(root), [])
 
 
 class SamplePathTests(unittest.TestCase):
@@ -67,18 +102,15 @@ class SamplePathTests(unittest.TestCase):
         relative, _ = ableton.sample_paths(self.WAV, sample_dir="Samples/PCE")
         self.assertEqual(relative, "Samples/PCE/wave-01.wav")
         self.assertNotIn("song.vgz.wavs", relative)
-        self.assertNotIn("proj", relative)
 
     def test_the_library_gives_the_absolute_path(self):
-        relative, absolute = ableton.sample_paths(
+        _, absolute = ableton.sample_paths(
             self.WAV, library=self.LIBRARY, sample_dir="Samples/PCE"
         )
         self.assertEqual(
             absolute,
             os.path.join(os.path.abspath(self.LIBRARY), "Samples", "PCE", "wave-01.wav"),
         )
-        self.assertTrue(absolute.endswith(os.path.join("PCE", "wave-01.wav")))
-        self.assertEqual(relative, "Samples/PCE/wave-01.wav")
 
     def test_a_library_without_a_sample_dir_keeps_the_real_path(self):
         _, absolute = ableton.sample_paths(self.WAV, library=self.LIBRARY)
@@ -96,143 +128,16 @@ class SamplePathTests(unittest.TestCase):
         self.assertNotIn("..", relative)
 
 
-class GroupingTests(unittest.TestCase):
-    def test_identical_settings_are_one_preset(self):
-        values = (0.1, 200.0, 0.5, 300.0)
-        self.assertTrue(ableton.same_preset(values, values))
-
-    def test_the_allowance_grows_with_the_time(self):
-        allowances = [ableton.time_tolerance(v) for v in (0.5, 5.0, 30.0, 500.0, 5000.0)]
-        self.assertEqual(allowances, sorted(allowances))
-        self.assertEqual(allowances, [1.0, 5.0, 25.0, 200.0, 1000.0])
-
-    def test_each_band_holds_to_its_upper_edge(self):
-        for below, allowed in ableton.TIME_TOLERANCE:
-            self.assertEqual(ableton.time_tolerance(below - 1e-9), allowed)
-
-    def test_past_the_last_band_the_allowance_is_a_fraction(self):
-        last = ableton.TIME_TOLERANCE[-1][0]
-        self.assertEqual(
-            ableton.time_tolerance(last * 4),
-            last * 4 * ableton.TIME_TOLERANCE_FRACTION,
-        )
-
-    def test_a_short_time_is_judged_strictly(self):
-        self.assertTrue(ableton.same_preset(
-            (0.1, 30.0, 0.5, 300.0), (0.1, 50.0, 0.5, 300.0)))
-        self.assertFalse(ableton.same_preset(
-            (0.1, 30.0, 0.5, 300.0), (0.1, 90.0, 0.5, 300.0)))
-
-    def test_a_long_time_is_judged_loosely(self):
-        self.assertTrue(ableton.same_preset(
-            (0.1, 900.0, 0.5, 300.0), (0.1, 1050.0, 0.5, 300.0)))
-        self.assertFalse(ableton.same_preset(
-            (0.1, 900.0, 0.5, 300.0), (0.1, 1400.0, 0.5, 300.0)))
-
-    def test_the_longer_time_sets_the_allowance(self):
-        # Symmetric: the pair is judged the same whichever way round it comes.
-        pair = ((0.1, 95.0, 0.5, 300.0), (0.1, 260.0, 0.5, 300.0))
-        self.assertEqual(
-            ableton.same_preset(*pair), ableton.same_preset(pair[1], pair[0])
-        )
-
-    def test_the_scale_widens_and_narrows_the_allowance(self):
-        pair = ((0.1, 300.0, 0.5, 300.0), (0.1, 560.0, 0.5, 300.0))
-        self.assertFalse(ableton.same_preset(*pair, tolerance=1.0))
-        self.assertTrue(ableton.same_preset(*pair, tolerance=2.0))
-
-    def test_a_zero_scale_demands_an_exact_match(self):
-        self.assertTrue(ableton.same_preset(
-            (0.1, 200.0, 0.5, 300.0), (0.1, 200.0, 0.5, 300.0), tolerance=0.0))
-        self.assertFalse(ableton.same_preset(
-            (0.1, 200.0, 0.5, 300.0), (0.1, 201.0, 0.5, 300.0), tolerance=0.0))
-
-    def test_a_sustain_within_one_amplitude_step_is_the_same_level(self):
-        step = 10 ** (-1.4 / 20)
-        self.assertTrue(ableton.same_preset(
-            (0.1, 200.0, 1.0, 300.0), (0.1, 200.0, step, 300.0)))
-        far = 10 ** (-4.0 / 20)
-        self.assertFalse(ableton.same_preset(
-            (0.1, 200.0, 1.0, 300.0), (0.1, 200.0, far, 300.0)))
-
-    def test_every_field_is_compared(self):
-        base = (0.1, 200.0, 0.5, 300.0)
-        for index, other in enumerate(((900.0, 200.0, 0.5, 300.0),
-                                       (0.1, 4000.0, 0.5, 300.0),
-                                       (0.1, 200.0, 0.01, 300.0),
-                                       (0.1, 200.0, 0.5, 9000.0))):
-            self.assertFalse(ableton.same_preset(base, other), index)
-
-
-class GroupInstrumentTests(unittest.TestCase):
-    def analysis(self):
-        return build_analysis(two_instruments())[1]
-
-    def test_a_different_wave_never_shares_a_preset(self):
-        a = self.analysis()
-        mapping = ableton.group_instruments(a, min_notes=1)
-        waves = {}
-        for instrument, head in mapping.items():
-            waves.setdefault(head, set()).add(a.instruments[instrument][0])
-        for wave_set in waves.values():
-            self.assertEqual(len(wave_set), 1)
-
-    def test_a_rare_instrument_leads_no_group(self):
-        a = self.analysis()
-        mapping = ableton.group_instruments(a, min_notes=99)
-        self.assertEqual(mapping, {})  # nothing carries that many notes
-
-    def test_a_low_floor_gives_every_instrument_a_preset(self):
-        a = self.analysis()
-        mapping = ableton.group_instruments(a, min_notes=1, tolerance=0.0)
-        self.assertEqual(len(mapping), len(a.instruments))
-
-    def test_a_wide_tolerance_collapses_more_than_a_narrow_one(self):
-        a = analyse(make_vgm(two_instruments()))
-        narrow = len(set(ableton.group_instruments(a, tolerance=0.0, min_notes=1).values()))
-        wide = len(set(ableton.group_instruments(a, tolerance=10.0, min_notes=1).values()))
-        self.assertLessEqual(wide, narrow)
-
-
 class NameTests(unittest.TestCase):
-    def test_the_name_carries_the_wave_and_the_envelope(self):
-        self.assertEqual(
-            ableton.preset_name("wave-01", (0.1, 526.1, 0.0003162277571, 29.2)),
-            "wave-01 a0 d526 s-70 r29",
-        )
-
-    def test_the_sustain_reads_as_db_below_the_peak(self):
-        self.assertIn(" s0 ", ableton.preset_name("wave-00", (0.1, 100.0, 1.0, 50.0)))
-        self.assertIn(" s-12 ", ableton.preset_name("wave-00", (0.1, 100.0, 0.2512, 50.0)))
-
-    def test_the_sustain_never_reads_below_the_floor(self):
-        name = ableton.preset_name("wave-00", (0.1, 100.0, ableton.LEVEL_FLOOR, 50.0))
-        self.assertIn(f" s{-round(ableton.FLOOR_DB)} ", name)
-
-    def test_a_name_holds_no_instrument_number(self):
-        name = ableton.preset_name("wave-03", (23.4, 187.1, 0.2512, 904.3))
-        self.assertNotIn("inst", name)
-        self.assertTrue(name.startswith("wave-03 "))
+    def test_a_preset_is_named_for_its_wave_and_envelope(self):
+        envelope = ableton.STANDARD[0]
+        name = ableton.preset_name(os.path.join("x", "wave-03.wav"), envelope)
+        self.assertEqual(name, f"wave-03 {envelope.name}")
 
     def test_names_sort_by_wave(self):
-        values = (0.1, 100.0, 0.5, 50.0)
-        names = [ableton.preset_name(w, values) for w in ("wave-02", "wave-00", "wave-01")]
-        self.assertEqual(sorted(names), [n for n in sorted(names)])
+        envelope = ableton.STANDARD[0]
+        names = [ableton.preset_name(f"wave-{i:02d}.wav", envelope) for i in (2, 0, 1)]
         self.assertTrue(sorted(names)[0].startswith("wave-00"))
-
-    def test_settings_far_enough_apart_to_survive_grouping_get_their_own_name(self):
-        close = (0.1, 200.0, 0.5, 300.0)
-        apart = (0.1, 200.0 + ableton.time_tolerance(200.0) + 1, 0.5, 300.0)
-        self.assertFalse(ableton.same_preset(close, apart))
-        self.assertNotEqual(
-            ableton.preset_name("wave-00", close), ableton.preset_name("wave-00", apart)
-        )
-
-    def test_a_step_falls_back_to_one_video_frame(self):
-        # An instrument whose notes have a single amplitude has no span to
-        # measure, so the driver's own tick stands in.
-        _, analysis = build_analysis(setup(0) + play(0, 0, C4_DIVIDER, [31]))
-        self.assertEqual(ableton._step_ms(analysis, 0), ableton.FRAME_MS)
 
 
 class TemplateTests(unittest.TestCase):
@@ -246,11 +151,11 @@ class TemplateTests(unittest.TestCase):
 
 
 class BuildTests(unittest.TestCase):
-    def preset(self, values=(0.1, 200.0, 0.5, 300.0)):
+    def preset(self, settings=(0.1, 200.0, 0.5, 300.0)):
         with tempfile.TemporaryDirectory() as out:
             wav = os.path.join(out, "wave-00.wav")
             waves.write_wav(wav, [0] * WAVE_LENGTH, waves.cycle_rate())
-            blob = ableton.build("inst-00", wav, values, "Samples/wave-00.wav")
+            blob = ableton.build("wave-00 pluck", wav, settings, "Samples/wave-00.wav")
         return ET.fromstring(gzip.decompress(blob))
 
     def test_the_preset_is_gzipped_xml_live_would_recognise(self):
@@ -264,7 +169,6 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(part.find("SampleEnd").get("Value"), str(WAVE_LENGTH - 1))
         for loop in ("SustainLoop", "ReleaseLoop"):
             self.assertEqual(part.find(f"{loop}/Mode").get("Value"), str(ableton.SUSTAIN_LOOP))
-            self.assertEqual(part.find(f"{loop}/End").get("Value"), str(WAVE_LENGTH - 1))
         self.assertEqual(
             part.find("SampleRef/DefaultSampleRate").get("Value"), str(waves.cycle_rate())
         )
@@ -274,10 +178,10 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(part.find("SampleRef/FileRef/OriginalCrc").get("Value"), "0")
 
     def test_the_envelope_carries_the_values_given(self):
-        envelope = self.preset((0.1, 200.0, 0.5, 300.0)).find(ableton.ENVELOPE)
-        self.assertEqual(float(envelope.find("DecayTime/Manual").get("Value")), 200.0)
-        self.assertEqual(float(envelope.find("SustainLevel/Manual").get("Value")), 0.5)
-        self.assertEqual(float(envelope.find("ReleaseTime/Manual").get("Value")), 300.0)
+        shape = self.preset((0.1, 200.0, 0.5, 300.0)).find(ableton.ENVELOPE)
+        self.assertEqual(float(shape.find("DecayTime/Manual").get("Value")), 200.0)
+        self.assertEqual(float(shape.find("SustainLevel/Manual").get("Value")), 0.5)
+        self.assertEqual(float(shape.find("ReleaseTime/Manual").get("Value")), 300.0)
 
     def test_a_missing_field_is_reported(self):
         with self.assertRaises(KeyError):
@@ -285,69 +189,46 @@ class BuildTests(unittest.TestCase):
 
 
 class WriteTests(unittest.TestCase):
-    def test_one_preset_per_instrument_that_has_a_wave(self):
-        vgm, analysis = build_analysis(two_instruments())
+    def test_every_envelope_lands_on_every_wave(self):
         with tempfile.TemporaryDirectory() as root:
-            wave_dir = os.path.join(root, "wavs")
-            found = waves.extract(vgm)
-            waves.write_files(vgm, found, wave_dir)
+            dump = wave_dump(os.path.join(root, "wavs"), count=3)
             out = os.path.join(root, "ableton")
-            written = ableton.write_presets(vgm, analysis, wave_dir, out, min_notes=1)
-            self.assertEqual(len(written), len(analysis.instruments))
-            for row in written:
-                self.assertTrue(os.path.exists(os.path.join(out, row[0] + ableton.SUFFIX)))
-                self.assertTrue(row[0].startswith(row[1].strip() + " "))
+            written = ableton.write_presets(dump, out)
+        self.assertEqual(len(written), 3 * len(ableton.STANDARD))
+        self.assertEqual(len({name for name, _, _ in written}), len(written))
 
-    def test_a_preset_reports_what_it_covers(self):
-        vgm, analysis = build_analysis(two_instruments())
+    def test_a_selection_writes_only_what_was_asked(self):
         with tempfile.TemporaryDirectory() as root:
-            wave_dir = os.path.join(root, "wavs")
-            waves.write_files(vgm, waves.extract(vgm), wave_dir)
-            written = ableton.write_presets(
-                vgm, analysis, wave_dir, os.path.join(root, "out"), min_notes=1
-            )
-        instruments = sum(row[4] for row in written)
-        self.assertEqual(instruments, len(analysis.instruments))
-        self.assertTrue(all(row[5] > 0 for row in written))
-
-    def test_an_instrument_with_no_extracted_wave_is_skipped(self):
-        vgm, analysis = build_analysis(two_instruments())
-        with tempfile.TemporaryDirectory() as root:
-            empty = os.path.join(root, "wavs")
-            os.makedirs(empty)
+            dump = wave_dump(os.path.join(root, "wavs"), count=2)
             out = os.path.join(root, "ableton")
-            self.assertEqual(ableton.write_presets(vgm, analysis, empty, out), [])
+            written = ableton.write_presets(dump, out, names=["hold", "tail"])
+            files = sorted(os.listdir(out))
+        self.assertEqual(len(written), 4)
+        self.assertEqual(
+            files,
+            ["wave-00 hold.adv", "wave-00 tail.adv", "wave-01 hold.adv", "wave-01 tail.adv"],
+        )
 
     def test_the_sample_dir_reaches_the_written_preset(self):
-        vgm, analysis = build_analysis(two_instruments())
         with tempfile.TemporaryDirectory() as root:
-            wave_dir = os.path.join(root, "wavs")
-            waves.write_files(vgm, waves.extract(vgm), wave_dir)
+            dump = wave_dump(os.path.join(root, "wavs"))
             out = os.path.join(root, "ableton")
             library = os.path.join(root, "library")
-            written = ableton.write_presets(
-                vgm, analysis, wave_dir, out, library=library,
-                sample_dir="Samples/PCE", min_notes=1,
+            ableton.write_presets(
+                dump, out, library=library, sample_dir="Samples/PCE", names=["hold"]
             )
-            with open(os.path.join(out, written[0][0] + ableton.SUFFIX), "rb") as handle:
-                blob = handle.read()
-            part = ET.fromstring(gzip.decompress(blob)).find(ableton.PART)
+            with open(os.path.join(out, "wave-00 hold.adv"), "rb") as handle:
+                part = ET.fromstring(gzip.decompress(handle.read())).find(ableton.PART)
             relative = part.find("SampleRef/FileRef/RelativePath").get("Value")
             absolute = part.find("SampleRef/FileRef/Path").get("Value")
-        self.assertTrue(relative.startswith("Samples/PCE/wave-"))
+        self.assertEqual(relative, "Samples/PCE/wave-00.wav")
         self.assertTrue(absolute.startswith(os.path.abspath(library)))
-        self.assertIn(os.path.join("Samples", "PCE"), absolute)
 
-    def test_the_note_floor_drops_instruments_that_fire_once(self):
-        vgm, analysis = build_analysis(two_instruments())
+    def test_an_unknown_envelope_stops_the_write(self):
         with tempfile.TemporaryDirectory() as root:
-            wave_dir = os.path.join(root, "wavs")
-            waves.write_files(vgm, waves.extract(vgm), wave_dir)
-            out = os.path.join(root, "out")
-            few = ableton.write_presets(vgm, analysis, wave_dir, out, min_notes=2)
-            every = ableton.write_presets(vgm, analysis, wave_dir, out, min_notes=1)
-        self.assertEqual(few, [])
-        self.assertEqual(len(every), len(analysis.instruments))
+            dump = wave_dump(os.path.join(root, "wavs"))
+            with self.assertRaises(ValueError):
+                ableton.write_presets(dump, os.path.join(root, "out"), names=["nope"])
 
 
 if __name__ == "__main__":

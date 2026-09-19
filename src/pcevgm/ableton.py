@@ -1,30 +1,26 @@
-"""Ableton Live Simpler presets, one per instrument.
+"""Ableton Live Simpler presets, a standard set of envelopes per wave table.
 
 An .adv file is a single gzipped XML document. Rather than write that XML from
 nothing, the generator patches a template exported from Live, so the schema is
 one Live is known to accept. Only the sample reference, the volume envelope and
 the names are replaced.
 
-The envelope is the interesting part. A HuC6280 envelope is a run of amplitude
-steps written one per video frame, each step 1.5 dB, which maps onto Simpler's
-ADSR directly: the fall gives the decay, the level it settles at gives the
-sustain, and continuing that same fall down to Simpler's -70 dB floor gives a
-release in keeping with how the instrument actually decays.
+Every wave gets the same handful of envelopes. Deriving one envelope per
+instrument gave hundreds of near-identical presets with numbers in their names;
+a fixed set gives presets you can reach for. The values below sit on the
+percentiles of the envelopes the sample rips actually play.
 """
 
 from __future__ import annotations
 
+import glob
 import gzip
-import math
 import os
 import posixpath
-import xml.etree.ElementTree as ET
-from collections import Counter
-from statistics import median
+from dataclasses import dataclass
 
-from .huc6280 import DB_PER_STEP, WAVE_LENGTH
-from .notes import FRAME, Analysis
-from .waves import CYCLE_HZ, WAV_SUFFIX, cycle_rate
+from .huc6280 import WAVE_LENGTH
+from .waves import CYCLE_HZ, LONG_WAV_SUFFIX, WAV_SUFFIX, cycle_rate
 
 TEMPLATE = os.path.join(os.path.dirname(__file__), "data", "simpler.adv")
 SUFFIX = ".adv"
@@ -34,80 +30,71 @@ PART = "OriginalSimpler/Player/MultiSampleMap/SampleParts/MultiSamplePart"
 ENVELOPE = "OriginalSimpler/VolumeAndPan/Envelope"
 
 # Simpler's own limits, read off the template's MidiControllerRange entries.
-LEVEL_FLOOR = 0.0003162277571  # -70 dB
-ATTACK_RANGE = (0.1, 20000.0)
+LEVEL_FLOOR = 0.0003162277571  # -70 dB, the quietest level Simpler holds
+FLOOR_DB = 70.0
+ATTACK_RANGE = (0.1, 20000.0)  # 0.1 ms is Simpler's way of spelling "none"
 TIME_RANGE = (1.0, 60000.0)
-FLOOR_DB = 70.0  # LEVEL_FLOOR expressed in dB below the peak
 
 SUSTAIN_LOOP = 1  # forward. Live's enum is not documented here; 0 is off.
 ROOT_KEY = 60  # C4, which is what the single cycle wav is tuned to
-DEFAULT_RELEASE_MS = 200.0  # for an envelope that never falls
-FRAME_MS = FRAME / 44100 * 1000  # one video frame, the driver's own tick
 
-# Two presets are the same sound when their times agree and their sustains
-# agree. How far two times may differ depends on how long they are: a 20 ms
-# gap is the difference between a click and a pluck at 30 ms, and nothing at
-# all at 900 ms. Each entry is (below this many ms, allow this many ms).
-TIME_TOLERANCE = (
-    (1.0, 1.0),
-    (10.0, 5.0),
-    (100.0, 25.0),
-    (1000.0, 200.0),
+
+@dataclass(frozen=True)
+class Envelope:
+    """One named shape, in the units Simpler stores: milliseconds and dB."""
+
+    name: str
+    attack: float
+    decay: float
+    sustain_db: float  # below the peak; -FLOOR_DB means it falls to silence
+    release: float
+    note: str
+
+
+NONE = ATTACK_RANGE[0]
+SILENT = -FLOOR_DB
+
+STANDARD = (
+    Envelope("hold", NONE, TIME_RANGE[1], 0.0, 50.0,
+             "the raw oscillator, key down means tone"),
+    Envelope("stab", NONE, 60.0, SILENT, 20.0,
+             "near the tenth percentile decay, percussive"),
+    Envelope("pluck", NONE, 180.0, SILENT, 30.0,
+             "the median decay of the rips"),
+    Envelope("decay", NONE, 800.0, SILENT, 50.0,
+             "near the ninetieth percentile decay"),
+    Envelope("tail", NONE, 200.0, -12.0, 2000.0,
+             "drops fast, then rings out"),
+    Envelope("swell", 300.0, 500.0, -6.0, 400.0,
+             "the slow attacks, whose longest measured 440 ms"),
 )
-TIME_TOLERANCE_FRACTION = 0.2  # past the last entry, a fifth of the value
-# A sustain within 1.5 dB is the same level, because that is one step of the
-# chip's own amplitude register.
-SUSTAIN_TOLERANCE_DB = DB_PER_STEP
-TOLERANCE = 1.0  # scales every allowance above
-# An instrument the detector fired once is usually its own guesswork. Across
-# the sample rips, instruments used twice or more carry 99% of all notes.
-MIN_NOTES = 2
+NAMES = tuple(envelope.name for envelope in STANDARD)
 
 
-def _clamp(value, low, high):
-    return max(low, min(high, value))
+def values(envelope: Envelope):
+    """The four numbers a preset stores, with the sustain as linear amplitude."""
+    if envelope.sustain_db <= -FLOOR_DB:
+        sustain = LEVEL_FLOOR
+    else:
+        sustain = min(1.0, 10 ** (envelope.sustain_db / 20))
+    return envelope.attack, envelope.decay, sustain, envelope.release
 
 
-def _step_ms(analysis: Analysis, instrument: int) -> float:
-    """How long one envelope step lasts, from the notes that use it."""
-    spans = []
-    for note in analysis.notes:
-        if note.instrument == instrument and len(note.amps) > 1:
-            span = note.amps[-1][0] - note.amps[0][0]
-            spans.append(span / (len(note.amps) - 1))
-    if not spans:
-        return FRAME_MS
-    return median(spans) / 44100 * 1000
+def chosen(names=()) -> list:
+    """The envelopes to write. An empty selection means all of them."""
+    if not names:
+        return list(STANDARD)
+    wanted = [name.strip() for name in names if name.strip()]
+    unknown = [name for name in wanted if name not in NAMES]
+    if unknown:
+        raise ValueError(f"no such envelope: {', '.join(unknown)}")
+    return [envelope for envelope in STANDARD if envelope.name in wanted]
 
 
-def adsr(analysis: Analysis, instrument: int):
-    """Attack, decay, sustain and release for one instrument.
-
-    Times are milliseconds and the sustain is linear amplitude, which is what
-    Simpler stores.
-    """
-    _, envelope_id = analysis.instruments[instrument]
-    envelope = analysis.envelopes[envelope_id]
-    step = _step_ms(analysis, instrument)
-
-    peak = max(envelope)
-    peak_at = envelope.index(peak)
-    final = envelope[-1]
-
-    attack = _clamp(peak_at * step, *ATTACK_RANGE)
-    decay = _clamp(max(len(envelope) - 1 - peak_at, 1) * step, *TIME_RANGE)
-
-    fallen_db = DB_PER_STEP * (peak - final)
-    if final <= 0:
-        # The chip cut the note, so it lets go within a frame.
-        return attack, decay, LEVEL_FLOOR, _clamp(step, *TIME_RANGE)
-
-    sustain = _clamp(10 ** (-fallen_db / 20), LEVEL_FLOOR, 1.0)
-    if fallen_db <= 0:
-        return attack, decay, sustain, _clamp(DEFAULT_RELEASE_MS, *TIME_RANGE)
-    # Carry the observed fall on down to the floor.
-    release = (FLOOR_DB - fallen_db) * decay / fallen_db
-    return attack, decay, sustain, _clamp(release, *TIME_RANGE)
+def wave_files(wave_dir: str) -> list:
+    """The single cycle wave files in a dump, in order."""
+    found = glob.glob(os.path.join(wave_dir, "wave-*" + WAV_SUFFIX))
+    return sorted(path for path in found if not path.endswith(LONG_WAV_SUFFIX))
 
 
 def sample_paths(wav_path: str, library: str = "", sample_dir: str = ""):
@@ -129,83 +116,9 @@ def sample_paths(wav_path: str, library: str = "", sample_dir: str = ""):
     return relative, absolute
 
 
-def time_tolerance(value: float, scale: float = TOLERANCE) -> float:
-    """How far another time may sit from this one and still be the same time."""
-    for below, allowed in TIME_TOLERANCE:
-        if value < below:
-            return allowed * scale
-    return value * TIME_TOLERANCE_FRACTION * scale
-
-
-def _same_time(first: float, second: float, scale: float) -> bool:
-    # The longer of the two sets the allowance, so the test stays symmetric.
-    return abs(first - second) <= time_tolerance(max(first, second), scale)
-
-
-def _same_level(first: float, second: float, db: float) -> bool:
-    if first <= 0 or second <= 0:
-        return first == second
-    return abs(20 * math.log10(first / second)) <= db
-
-
-def same_preset(first, second, tolerance: float = TOLERANCE) -> bool:
-    """Whether two ADSR settings would make the same preset.
-
-    `tolerance` scales the time allowances, so 2 merges twice as freely and 0
-    demands an exact match.
-    """
-    attack, decay, sustain, release = first
-    other_attack, other_decay, other_sustain, other_release = second
-    return (
-        _same_time(attack, other_attack, tolerance)
-        and _same_time(decay, other_decay, tolerance)
-        and _same_time(release, other_release, tolerance)
-        and _same_level(sustain, other_sustain, SUSTAIN_TOLERANCE_DB)
-    )
-
-
-def group_instruments(analysis: Analysis, tolerance: float = TOLERANCE,
-                      min_notes: int = MIN_NOTES) -> dict:
-    """Map every instrument onto the one whose preset covers it.
-
-    An instrument leads a group only if it carries at least `min_notes` notes,
-    so one-off guesses from the detector cannot spawn a preset of their own.
-    They still join a group when one fits; otherwise they map to nothing.
-    """
-    uses = Counter(note.instrument for note in analysis.notes)
-    settings = {i: adsr(analysis, i) for i in range(len(analysis.instruments))}
-    order = sorted(settings, key=lambda i: (-uses[i], i))
-
-    heads, mapping = [], {}
-    for instrument in order:
-        wave, _ = analysis.instruments[instrument]
-        for head in heads:
-            if analysis.instruments[head][0] != wave:
-                continue
-            if same_preset(settings[instrument], settings[head], tolerance):
-                mapping[instrument] = head
-                break
-        else:
-            if uses[instrument] >= min_notes:
-                heads.append(instrument)
-                mapping[instrument] = instrument
-    return mapping
-
-
-def preset_name(wave: str, values) -> str:
-    """A file name saying which wave a preset plays and how it is shaped.
-
-    Times are whole milliseconds and the sustain is dB below the peak, which
-    reads better in Live's browser than Simpler's linear amplitude. Two presets
-    that survived grouping differ by more than a frame or more than 1.5 dB, so
-    rounding cannot collapse them into one name.
-    """
-    attack, decay, sustain, release = values
-    db = 20 * math.log10(sustain) if sustain > 0 else -FLOOR_DB
-    return (
-        f"{wave.strip()} a{round(attack)} d{round(decay)} "
-        f"s{round(max(db, -FLOOR_DB))} r{round(release)}"
-    )
+def preset_name(wav_path: str, envelope: Envelope) -> str:
+    """What the preset is called, as `wave-01 pluck`."""
+    return f"{os.path.basename(wav_path)[: -len(WAV_SUFFIX)]} {envelope.name}"
 
 
 def _set(node, path: str, value) -> None:
@@ -215,14 +128,16 @@ def _set(node, path: str, value) -> None:
     found.set("Value", f"{value:.10g}" if isinstance(value, float) else str(value))
 
 
-def build(name: str, wav_path: str, values, relative_path: str = "",
+def build(name: str, wav_path: str, settings, relative_path: str = "",
           path: str = "", template: str = TEMPLATE) -> bytes:
     """One preset, as the bytes of an .adv file.
 
     `wav_path` is the file on disk, read for its size and date. `path` is what
     the preset records, which differs once the samples are copied elsewhere.
     """
-    attack, decay, sustain, release = values
+    import xml.etree.ElementTree as ET
+
+    attack, decay, sustain, release = settings
     with open(template, "rb") as handle:
         root = ET.fromstring(gzip.decompress(handle.read()))
 
@@ -244,50 +159,27 @@ def build(name: str, wav_path: str, values, relative_path: str = "",
     _set(part, "SampleRef/DefaultDuration", WAVE_LENGTH)
     _set(part, "SampleRef/DefaultSampleRate", cycle_rate(CYCLE_HZ))
 
-    envelope = root.find(ENVELOPE)
-    _set(envelope, "AttackTime/Manual", attack)
-    _set(envelope, "DecayTime/Manual", decay)
-    _set(envelope, "SustainLevel/Manual", sustain)
-    _set(envelope, "ReleaseTime/Manual", release)
+    shape = root.find(ENVELOPE)
+    _set(shape, "AttackTime/Manual", attack)
+    _set(shape, "DecayTime/Manual", decay)
+    _set(shape, "SustainLevel/Manual", sustain)
+    _set(shape, "ReleaseTime/Manual", release)
 
     return gzip.compress(ET.tostring(root, encoding="UTF-8", xml_declaration=True))
 
 
-def write_presets(vgm, analysis: Analysis, wave_dir: str, out_dir: str,
-                  library: str = "", sample_dir: str = "",
-                  tolerance: float = TOLERANCE, min_notes: int = MIN_NOTES) -> list:
-    """One .adv per distinct sound. Returns what was written.
-
-    Instruments whose attack, decay, sustain and release agree share a preset,
-    named after the one that plays the most notes.
-    """
+def write_presets(wave_dir: str, out_dir: str, library: str = "",
+                  sample_dir: str = "", names=()) -> list:
+    """Every chosen envelope on every wave in a dump. Returns what was written."""
+    envelopes = chosen(names)
     os.makedirs(out_dir, exist_ok=True)
-    mapping = group_instruments(analysis, tolerance, min_notes)
-    uses = Counter(note.instrument for note in analysis.notes)
-
-    covered = {}
-    for instrument, head in mapping.items():
-        covered.setdefault(head, []).append(instrument)
-
     written = []
-    taken = set()
-    for head in sorted(covered, key=lambda h: (-uses[h], h)):
-        wave, envelope_id = analysis.instruments[head]
-        wav = os.path.join(wave_dir, wave.strip() + WAV_SUFFIX)
-        if not os.path.exists(wav):
-            continue  # the note played a table that matched no complete upload
+    for wav in wave_files(wave_dir):
         relative, absolute = sample_paths(wav, library, sample_dir)
-        values = adsr(analysis, head)
-        name = preset_name(wave, values)
-        while name in taken:  # rounding should not collide, but never overwrite
-            name += "'"
-        taken.add(name)
-        preset = os.path.join(out_dir, f"{name}{SUFFIX}")
-        with open(preset, "wb") as handle:
-            handle.write(build(name, wav, values, relative, absolute))
-        notes = sum(uses[i] for i in covered[head])
-        written.append(
-            (name, wave, analysis.envelope_names[envelope_id], values,
-             len(covered[head]), notes)
-        )
+        for envelope in envelopes:
+            name = preset_name(wav, envelope)
+            settings = values(envelope)
+            with open(os.path.join(out_dir, name + SUFFIX), "wb") as handle:
+                handle.write(build(name, wav, settings, relative, absolute))
+            written.append((name, envelope, settings))
     return written
