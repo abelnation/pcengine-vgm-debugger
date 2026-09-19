@@ -77,6 +77,13 @@ earlier run so you can remove them yourself.
 ## Screen
 
 - Header: file name, VGM version, chip clocks, GD3 tags, transport, progress.
+- Keyboard: five octaves, C1 to B5, showing what sounds right now. Each white
+  key takes two cells on the lower row; each black key takes one cell on the
+  upper row, over the right half of the white key below it. An active key
+  changes background colour, one colour per channel, so the key keeps its
+  shape. The digit on the key is the channel number. Two channels on one white
+  key take a cell each; more than that shows `+`. A pitch off the ends of the
+  board marks the edge with `<` or `>`. Press `k` to hide it.
 - Channel table: two rows per PSG channel.
   - First row: `ST` (`ON`, `DDA` or `off`), `DIV` (the 12-bit frequency
     divider), `HZ` and `NOTE` (the divider as a pitch, with cents offset),
@@ -116,6 +123,7 @@ complete upload, which includes the start of every track.
 | `g` `G` | go to start / end |
 | `l` | go to the loop point |
 | `[` `]` | slower / faster |
+| `k` | show or hide the keyboard |
 | `h` | log filter: all commands or HuC6280 writes only |
 | `?` | show or hide the key list |
 | `q` | quit |
@@ -134,6 +142,7 @@ python -m unittest discover -s tests -t .
 | `src/pcevgm/huc6280.py` | PSG register model and pitch / level maths |
 | `src/pcevgm/player.py` | cursor over the stream, state replay, command text |
 | `src/pcevgm/waves.py` | wave table extraction and the `.pcm` / `.hex` output |
+| `src/pcevgm/keyboard.py` | the piano keyboard view of the current pitches |
 | `src/pcevgm/tui.py` | curses screen and key handling |
 | `src/pcevgm/cli.py` | argument parsing and the text modes |
 | `tools/make_example.py` | builds a synthetic test file |
@@ -146,6 +155,12 @@ python -m unittest discover -s tests -t .
   It is a model of the hardware curve, not a measurement.
 - Noise frequency shows the raw 5-bit register, not a rate in Hz.
 - The LFO registers are stored and shown but not applied to channel pitch.
+- The keyboard shows instantaneous pitch with no smoothing, so vibrato makes a
+  key marker jump between neighbours. It rounds to the nearest semitone; the
+  `NOTE` column carries the cents offset.
+- A channel counts as sounding on the keyboard above -40 dB. At -60 dB the
+  board fills with channels parked on divider 0 at 27 Hz.
+- The keyboard needs about 74 terminal columns.
 - Commands for other chips are decoded for length and time only.
 - Wave extraction ignores a partial pass. A track that rewrites only part of
   a table produces no new entry until the next full pass.

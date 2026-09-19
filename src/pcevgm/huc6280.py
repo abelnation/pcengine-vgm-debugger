@@ -219,15 +219,32 @@ def describe_write(register: int, value: int, selected: int) -> str:
     return f"{prefix} {name} reg 0x{register:02X} = 0x{value:02X}"
 
 
+AUDIBLE_HZ = 20000
+
+
+def midi_value(hz: float):
+    """Pitch as a fractional MIDI note number, or None when out of range."""
+    if hz <= 0 or hz > AUDIBLE_HZ:
+        return None
+    return 69 + 12 * math.log2(hz / 440.0)
+
+
+def midi_number(hz: float):
+    """Nearest MIDI note number, or None when out of range."""
+    value = midi_value(hz)
+    if value is None:
+        return None
+    nearest = round(value)
+    return nearest if 0 <= nearest < 128 else None
+
+
 def note_text(hz: float) -> str:
     """Nearest note plus cents, for example 'A4+03'."""
-    if hz <= 0 or hz > 20000:
+    value = midi_value(hz)
+    nearest = midi_number(hz)
+    if value is None or nearest is None:
         return "--"
-    midi = 69 + 12 * math.log2(hz / 440.0)
-    nearest = int(round(midi))
-    if not 0 <= nearest < 128:
-        return "--"
-    cents = int(round((midi - nearest) * 100))
+    cents = int(round((value - nearest) * 100))
     return f"{NOTE_NAMES[nearest % 12]}{nearest // 12 - 1}{cents:+03d}"
 
 

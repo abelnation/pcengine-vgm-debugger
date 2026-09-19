@@ -26,6 +26,7 @@ LEVEL_WIDTH = 6  # the dB L and dB R columns
 AMP_WIDTH = 3
 TAIL_WIDTH = 8  # the gap, the BAL column and the gap before WAVE
 UNKNOWN_WAVE = "wave  --"  # the table matches no complete upload
+from . import keyboard
 from .player import HUC6280_WRITE, Timeline, build_descriptions
 from .waves import extract as extract_waves
 from .waves import names_by_samples
@@ -48,6 +49,22 @@ PAIR_ACTIVE = 2
 PAIR_DIM = 3
 PAIR_CURSOR = 4
 PAIR_WARN = 5
+PAIR_KEY_WHITE = 6
+PAIR_KEY_BLACK = 7
+PAIR_KEY_FIRST = 10  # one pair per channel, the channel colour as background
+PAIR_CHANNEL_FIRST = 20  # the same colours as foreground, for the CH column
+
+# One colour per channel, so the keyboard and the channel table agree.
+CHANNEL_COLORS = (
+    curses.COLOR_RED,
+    curses.COLOR_GREEN,
+    curses.COLOR_YELLOW,
+    curses.COLOR_BLUE,
+    curses.COLOR_MAGENTA,
+    curses.COLOR_CYAN,
+)
+KEY_LEFT = 1  # indent of the keyboard
+KEYBOARD_ROWS = 4  # two key rows, the octave labels and a blank line
 
 HELP_LINES = [
     "space      play / pause",
@@ -58,6 +75,7 @@ HELP_LINES = [
     "g G        go to start / end",
     "l          go to the loop point",
     "[ ]        slower / faster",
+    "k          show or hide the keyboard",
     "h          log: all commands / HuC6280 writes only",
     "?          show or hide this help",
     "q          quit",
@@ -80,6 +98,7 @@ class Debugger:
         self.playing = False
         self.speed_index = 2
         self.writes_only = False
+        self.show_keyboard = True
         self.show_help = False
         self.play_position = 0.0
         self.status = ""
@@ -174,6 +193,23 @@ class Debugger:
 
         return head, detail, wave_rows(channel.waveform)
 
+    def _key_attr(self, cell) -> int:
+        if cell.channel is not None:
+            return curses.color_pair(PAIR_KEY_FIRST + cell.channel) | curses.A_BOLD
+        return curses.color_pair(PAIR_KEY_BLACK if cell.black else PAIR_KEY_WHITE)
+
+    def _draw_keyboard(self, screen, top: int) -> int:
+        state = self.timeline.state
+        for offset, cells in enumerate(keyboard.render(state)):
+            for column, cell in enumerate(cells):
+                self._put(screen, top + offset, KEY_LEFT + column, cell.char,
+                          self._key_attr(cell))
+        self._put(screen, top + 2, KEY_LEFT, keyboard.labels(), curses.color_pair(PAIR_DIM))
+        aside = "  ".join(f"ch{index} {why}" for index, why in keyboard.unpitched(state))
+        self._put(screen, top + 2, KEY_LEFT + keyboard.WIDTH + 2, aside,
+                  curses.color_pair(PAIR_DIM))
+        return top + KEYBOARD_ROWS
+
     def _draw_channels(self, screen, top: int) -> int:
         columns = (
             f" {'CH':>2}  {'ST':<3}  {'DIV':<5}  {'HZ':>8}  {'NOTE':<8}  "
@@ -199,6 +235,9 @@ class Debugger:
                 self._put(screen, row + line, 0, head if line == 0 else detail,
                           attr if line == 0 else curses.color_pair(PAIR_DIM))
                 self._put(screen, row + line, len(head), plot[line], attr)
+            # Tint the channel number to match its key on the keyboard.
+            self._put(screen, row, 1, f"{index:2d}",
+                      curses.color_pair(PAIR_CHANNEL_FIRST + index) | curses.A_BOLD)
             row += WAVE_ROWS
 
         master = (
@@ -263,7 +302,8 @@ class Debugger:
                 screen,
                 row,
                 1,
-                "space play  arrows frame  , . cmd  p n write  l loop  ? help  q quit",
+                "space play  arrows frame  , . cmd  p n write  l loop"
+                "  k keys  ? help  q quit",
                 curses.color_pair(PAIR_DIM),
             )
 
@@ -283,6 +323,8 @@ class Debugger:
         screen.erase()
         height = screen.getmaxyx()[0]
         row = self._draw_header(screen)
+        if self.show_keyboard:
+            row = self._draw_keyboard(screen, row)
         row = self._draw_channels(screen, row)
         self._draw_log(screen, row, height - row - 1)
         self._draw_footer(screen, height - 1)
@@ -340,6 +382,8 @@ class Debugger:
             self.speed_index = max(0, self.speed_index - 1)
         elif key == ord("]"):
             self.speed_index = min(len(SPEEDS) - 1, self.speed_index + 1)
+        elif key == ord("k"):
+            self.show_keyboard = not self.show_keyboard
         elif key == ord("h"):
             self.writes_only = not self.writes_only
         elif key == ord("?"):
@@ -395,6 +439,11 @@ def _init_colors() -> None:
     curses.init_pair(PAIR_DIM, curses.COLOR_BLUE, -1)
     curses.init_pair(PAIR_CURSOR, curses.COLOR_YELLOW, -1)
     curses.init_pair(PAIR_WARN, curses.COLOR_RED, -1)
+    curses.init_pair(PAIR_KEY_WHITE, curses.COLOR_BLACK, curses.COLOR_WHITE)
+    curses.init_pair(PAIR_KEY_BLACK, curses.COLOR_WHITE, curses.COLOR_BLACK)
+    for index, color in enumerate(CHANNEL_COLORS):
+        curses.init_pair(PAIR_KEY_FIRST + index, curses.COLOR_BLACK, color)
+        curses.init_pair(PAIR_CHANNEL_FIRST + index, color, -1)
 
 
 def run(vgm: VgmFile) -> None:
