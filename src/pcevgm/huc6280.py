@@ -58,6 +58,7 @@ LFO_MODE_MASK = 0x03
 
 NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 BLOCKS = "▁▂▃▄▅▆▇█"  # 8 levels; every wave cell stays visible
+WAVE_ROWS = 2  # character rows the two-row plot uses
 
 # Amplitude steps are 1.5 dB. Balance steps are 3.0 dB, so two amplitude units.
 BALANCE_WEIGHT = 2
@@ -210,3 +211,23 @@ def sparkline(wave) -> str:
     """Draw a wave table as one character per sample."""
     levels = len(BLOCKS)
     return "".join(BLOCKS[min(levels - 1, value * levels // WAVE_LENGTH)] for value in wave)
+
+
+def wave_rows(wave):
+    """Draw a wave table WAVE_ROWS characters tall. Returns one string per row.
+
+    Stacking rows doubles the levels a plot can show: WAVE_ROWS of 2 gives 16.
+    Row 0 is the top of the plot.
+    """
+    levels = len(BLOCKS)
+    rows = [[] for _ in range(WAVE_ROWS)]
+    for value in wave:
+        # Level 1 is the shortest bar, so a zero sample still leaves a mark.
+        level = value * WAVE_ROWS * levels // (SAMPLE_MASK + 1) + 1
+        for row in range(WAVE_ROWS):
+            floor = (WAVE_ROWS - 1 - row) * levels  # how much the rows below hold
+            rows[row].append(
+                " " if level <= floor
+                else BLOCKS[min(levels, level - floor) - 1]
+            )
+    return ["".join(row) for row in rows]

@@ -7,7 +7,14 @@ import curses
 import locale
 import time
 
-from .huc6280 import NUM_CHANNELS, note_text, sparkline
+from .huc6280 import (
+    FIRST_NOISE_CHANNEL,
+    NUM_CHANNELS,
+    WAVE_LENGTH,
+    WAVE_ROWS,
+    note_text,
+    wave_rows,
+)
 from .player import HUC6280_WRITE, Timeline, build_descriptions
 from .vgm import SAMPLE_RATE, VgmFile
 
@@ -112,38 +119,63 @@ class Debugger:
         self._put(screen, 4, 1 + filled, "─" * (bar_width - filled), curses.color_pair(PAIR_DIM))
         return 6
 
+    def _channel_text(self, index: int, state):
+        """Head line, detail line and one wave string per character row."""
+        channel = state.channels[index]
+        hz = channel.frequency_hz(state.clock)
+        levels = channel.levels_db(state.master_left, state.master_right)
+        if channel.enabled:
+            flag = "DDA" if channel.dda else "ON "
+        else:
+            flag = "off"
+        if levels is None:
+            left = right = "    --"
+        else:
+            left, right = f"{levels[0]:6.1f}", f"{levels[1]:6.1f}"
+
+        head = (
+            f" {index:2d}  {flag}  0x{channel.frequency:03X}  {hz:8.1f}  "
+            f"{note_text(hz):<8}  {left}  {right}  "
+            f"{channel.amplitude:3d}  {channel.balance_left:X}/{channel.balance_right:X}   "
+        )
+
+        parts = [f"wave {channel.wave_index:2d}/{WAVE_LENGTH}"]
+        if channel.dda:
+            parts.append(f"dda {channel.dda_sample:2d}")
+        if index >= FIRST_NOISE_CHANNEL:
+            noise = f"on freq {channel.noise_frequency:2d}" if channel.noise_enabled else "off"
+            parts.append(f"noise {noise}")
+        parts.append(f"writes {channel.writes}")
+        detail = ("      " + "   ".join(parts))[: len(head)].ljust(len(head))
+
+        return head, detail, wave_rows(channel.waveform)
+
     def _draw_channels(self, screen, top: int) -> int:
         columns = (
-            " CH  ST   DIV     HZ      NOTE     dB L    dB R   AMP  BAL   WAVE"
+            f" {'CH':>2}  {'ST':<3}  {'DIV':<5}  {'HZ':>8}  {'NOTE':<8}  "
+            f"{'dB L':>6}  {'dB R':>6}  {'AMP':>3}  {'BAL':<3}   WAVE"
         )
         self._put(screen, top, 0, columns, curses.A_UNDERLINE | curses.A_BOLD)
+
         state = self.timeline.state
+        row = top + 1
         for index in range(NUM_CHANNELS):
+            head, detail, plot = self._channel_text(index, state)
             channel = state.channels[index]
-            hz = channel.frequency_hz(state.clock)
-            levels = channel.levels_db(state.master_left, state.master_right)
-            if channel.enabled:
-                flag = "DDA" if channel.dda else "ON "
-            else:
-                flag = "off"
-            if levels is None:
-                left = right = "  --  "
-            else:
-                left, right = f"{levels[0]:6.1f}", f"{levels[1]:6.1f}"
-            noise = ""
-            if index >= 4 and channel.noise_enabled:
-                noise = f" NOISE {channel.noise_frequency:02d}"
-            wave = sparkline(channel.waveform)
-            row = (
-                f" {index:2d}  {flag}  0x{channel.frequency:03X}  {hz:8.1f}  "
-                f"{note_text(hz):<8} {left}  {right}  "
-                f"{channel.amplitude:3d}  {channel.balance_left:X}/{channel.balance_right:X}"
-                f"   {wave}{noise}"
+            attr = (
+                curses.color_pair(PAIR_ACTIVE)
+                if channel.enabled
+                else curses.color_pair(PAIR_DIM)
             )
-            attr = curses.color_pair(PAIR_ACTIVE) if channel.enabled else curses.color_pair(PAIR_DIM)
             if index == state.selected:
                 attr |= curses.A_BOLD
-            self._put(screen, top + 1 + index, 0, row, attr)
+            # The head sits on the first row, the detail under it. The plot
+            # spans every row, so it keeps the channel colour throughout.
+            for line in range(WAVE_ROWS):
+                self._put(screen, row + line, 0, head if line == 0 else detail,
+                          attr if line == 0 else curses.color_pair(PAIR_DIM))
+                self._put(screen, row + line, len(head), plot[line], attr)
+            row += WAVE_ROWS
 
         master = (
             f" master balance L={state.master_left:X} R={state.master_right:X}"
@@ -151,8 +183,8 @@ class Debugger:
             f"   LFO freq={state.lfo_frequency} ctrl=0x{state.lfo_control:02X}"
             f"   writes {state.writes}"
         )
-        self._put(screen, top + 1 + NUM_CHANNELS, 0, master, curses.color_pair(PAIR_DIM))
-        return top + NUM_CHANNELS + 3
+        self._put(screen, row, 0, master, curses.color_pair(PAIR_DIM))
+        return row + 2
 
     def _visible_log_indices(self, rows: int):
         commands = self.timeline.commands

@@ -1,6 +1,16 @@
 import unittest
 
-from pcevgm.huc6280 import DEFAULT_CLOCK, HuC6280State, note_text
+from pcevgm.huc6280 import (
+    BLOCKS,
+    DEFAULT_CLOCK,
+    SAMPLE_MASK,
+    WAVE_LENGTH,
+    WAVE_ROWS,
+    HuC6280State,
+    note_text,
+    sparkline,
+    wave_rows,
+)
 
 
 class RegisterTests(unittest.TestCase):
@@ -98,6 +108,41 @@ class LevelTests(unittest.TestCase):
         left, right = state.channels[0].levels_db(0x0F, 0x0F)
         self.assertAlmostEqual(left, 0.0)
         self.assertAlmostEqual(right, 0.0)
+
+
+class WavePlotTests(unittest.TestCase):
+    def test_shape_is_rows_by_wave_length(self):
+        rows = wave_rows([0] * WAVE_LENGTH)
+        self.assertEqual(len(rows), WAVE_ROWS)
+        for row in rows:
+            self.assertEqual(len(row), WAVE_LENGTH)
+
+    def test_lowest_sample_marks_only_the_bottom_row(self):
+        top, bottom = wave_rows([0] * WAVE_LENGTH)
+        self.assertEqual(top[0], " ")
+        self.assertEqual(bottom[0], BLOCKS[0])
+
+    def test_highest_sample_fills_every_row(self):
+        for row in wave_rows([SAMPLE_MASK] * WAVE_LENGTH):
+            self.assertEqual(row[0], BLOCKS[-1])
+
+    def test_two_rows_resolve_twice_as_many_levels(self):
+        column = [wave_rows([value] * WAVE_LENGTH) for value in range(SAMPLE_MASK + 1)]
+        distinct = {(rows[0][0], rows[1][0]) for rows in column}
+        self.assertEqual(len(distinct), WAVE_ROWS * len(BLOCKS))
+        self.assertEqual(len({sparkline([v])[0] for v in range(SAMPLE_MASK + 1)}), len(BLOCKS))
+
+    def test_height_never_drops_as_the_sample_rises(self):
+        def height(value):
+            top, bottom = wave_rows([value])
+            below = 0 if bottom == " " else BLOCKS.index(bottom) + 1
+            above = 0 if top == " " else BLOCKS.index(top) + 1
+            return below + above
+
+        heights = [height(value) for value in range(SAMPLE_MASK + 1)]
+        self.assertEqual(heights, sorted(heights))
+        self.assertEqual(heights[0], 1)
+        self.assertEqual(heights[-1], WAVE_ROWS * len(BLOCKS))
 
 
 if __name__ == "__main__":
