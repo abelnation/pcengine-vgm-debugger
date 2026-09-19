@@ -222,11 +222,17 @@ class NameTests(unittest.TestCase):
 
     def test_settings_far_enough_apart_to_survive_grouping_get_their_own_name(self):
         close = (0.1, 200.0, 0.5, 300.0)
-        apart = (0.1, 200.0 + 2 * ableton.FRAME_MS + 5, 0.5, 300.0)
-        self.assertFalse(ableton.same_preset(close, apart, tolerance=0.0))
+        apart = (0.1, 200.0 + ableton.time_tolerance(200.0) + 1, 0.5, 300.0)
+        self.assertFalse(ableton.same_preset(close, apart))
         self.assertNotEqual(
             ableton.preset_name("wave-00", close), ableton.preset_name("wave-00", apart)
         )
+
+    def test_a_step_falls_back_to_one_video_frame(self):
+        # An instrument whose notes have a single amplitude has no span to
+        # measure, so the driver's own tick stands in.
+        _, analysis = build_analysis(setup(0) + play(0, 0, C4_DIVIDER, [31]))
+        self.assertEqual(ableton._step_ms(analysis, 0), ableton.FRAME_MS)
 
 
 class TemplateTests(unittest.TestCase):

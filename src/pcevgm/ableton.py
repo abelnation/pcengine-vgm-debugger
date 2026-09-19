@@ -42,7 +42,7 @@ FLOOR_DB = 70.0  # LEVEL_FLOOR expressed in dB below the peak
 SUSTAIN_LOOP = 1  # forward. Live's enum is not documented here; 0 is off.
 ROOT_KEY = 60  # C4, which is what the single cycle wav is tuned to
 DEFAULT_RELEASE_MS = 200.0  # for an envelope that never falls
-FRAME_MS = FRAME / 44100 * 1000
+FRAME_MS = FRAME / 44100 * 1000  # one video frame, the driver's own tick
 
 # Two presets are the same sound when their times agree and their sustains
 # agree. How far two times may differ depends on how long they are: a 20 ms
@@ -76,7 +76,7 @@ def _step_ms(analysis: Analysis, instrument: int) -> float:
             span = note.amps[-1][0] - note.amps[0][0]
             spans.append(span / (len(note.amps) - 1))
     if not spans:
-        return FRAME / 44100 * 1000
+        return FRAME_MS
     return median(spans) / 44100 * 1000
 
 
