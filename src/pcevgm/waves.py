@@ -21,6 +21,7 @@ from .huc6280 import (
     SAMPLE_MASK,
     WAVE_LENGTH,
     HuC6280State,
+    note_text,
     sparkline,
 )
 from .player import HUC6280_WRITE
@@ -36,7 +37,10 @@ FOLDER_SUFFIX = ".wavs"
 HEX_PER_LINE = 16
 
 # Audio output. The .wav files are uncompressed 16-bit mono PCM.
-WAV_RATE = 44100
+WAV_RATE = 44100  # the .long.wav preview rate
+# A single cycle holds WAVE_LENGTH samples, so its sample rate sets its pitch.
+# C4 makes the file usable in a sampler without retuning.
+CYCLE_HZ = 261.6255653
 WAV_WIDTH = 2
 WAV_PEAK = 32767
 WAV_MIDPOINT = SAMPLE_MASK / 2  # a 5-bit sample sits at 15.5 when silent
@@ -93,6 +97,11 @@ def extract(vgm: VgmFile) -> list:
     return waves
 
 
+def cycle_rate(hz: float = CYCLE_HZ) -> int:
+    """Sample rate that makes one WAVE_LENGTH cycle play at `hz`."""
+    return max(1, round(WAVE_LENGTH * hz))
+
+
 def to_pcm16(samples) -> list:
     """Centre the 5-bit samples on zero and scale them to signed 16-bit."""
     scale = WAV_PEAK / WAV_MIDPOINT
@@ -125,14 +134,14 @@ def _fade_ends(frames: list) -> None:
         frames[-1 - index] = int(frames[-1 - index] * gain)
 
 
-def write_wav(path: str, frames) -> None:
+def write_wav(path: str, frames, rate: int = WAV_RATE) -> None:
     buffer = array("h", frames)
     if sys.byteorder == "big":
         buffer.byteswap()  # WAV data is always little endian
     with wave_file.open(path, "wb") as handle:
         handle.setnchannels(1)
         handle.setsampwidth(WAV_WIDTH)
-        handle.setframerate(WAV_RATE)
+        handle.setframerate(rate)
         handle.writeframes(buffer.tobytes())
 
 
@@ -171,16 +180,18 @@ def _time_text(sample: int) -> str:
     return f"{minutes:02d}:{seconds - minutes * 60:05.2f}"
 
 
-def _manifest(vgm: VgmFile, waves: list, names: list, preview_hz, preview_seconds) -> str:
+def _manifest(vgm, waves, names, cycle_hz, preview_hz, preview_seconds) -> str:
     uploads = sum(len(wave.uploads) for wave in waves)
     lines = [
         f"source   {vgm.path}",
         f"waves    {len(waves)} distinct, {uploads} uploads",
         f"format   {WAVE_LENGTH} bytes per .pcm file, one byte per sample, values 0 to 31",
         "         each .hex file holds the same bytes as text",
-        f"         each .wav file holds one cycle, {WAV_WIDTH * 8}-bit mono at {WAV_RATE} Hz",
+        f"         each .wav file holds one cycle, {WAV_WIDTH * 8}-bit mono."
+        f" Its {cycle_rate(cycle_hz)} Hz rate plays it at"
+        f" {cycle_hz:.2f} Hz, {note_text(cycle_hz)}",
         f"         each .long.wav repeats that cycle at {preview_hz:g} Hz"
-        f" for {preview_seconds:g} s",
+        f" for {preview_seconds:g} s at {WAV_RATE} Hz",
         "",
     ]
     for wave, name in zip(waves, names):
@@ -206,6 +217,7 @@ def write_files(
     out_dir: str,
     preview_hz: float = PREVIEW_HZ,
     preview_seconds: float = PREVIEW_SECONDS,
+    cycle_hz: float = CYCLE_HZ,
 ) -> dict:
     """Write one file per suffix in SUFFIXES per wave, plus a manifest.
 
@@ -220,7 +232,7 @@ def write_files(
             handle.write(wave.samples)
         with open(base + HEX_SUFFIX, "w", encoding="utf-8") as handle:
             handle.write(hex_text(wave.samples))
-        write_wav(base + WAV_SUFFIX, to_pcm16(wave.samples))
+        write_wav(base + WAV_SUFFIX, to_pcm16(wave.samples), cycle_rate(cycle_hz))
         write_wav(
             base + LONG_WAV_SUFFIX,
             preview_frames(wave.samples, preview_hz, preview_seconds),
@@ -228,7 +240,9 @@ def write_files(
 
     names = [stem + PCM_SUFFIX for stem in stems]
     with open(os.path.join(out_dir, MANIFEST_NAME), "w", encoding="utf-8") as handle:
-        handle.write(_manifest(vgm, waves, names, preview_hz, preview_seconds))
+        handle.write(
+            _manifest(vgm, waves, names, cycle_hz, preview_hz, preview_seconds)
+        )
 
     keep = {stem + suffix for stem in stems for suffix in SUFFIXES}
     keep.add(MANIFEST_NAME)

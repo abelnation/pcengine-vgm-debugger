@@ -63,6 +63,7 @@ def _extract_waves(vgm, args) -> int:
         args.out or waves_module.folder_for(vgm.path),
         args.preview_hz,
         args.preview_seconds,
+        args.wave_hz,
     )
     uploads = sum(len(wave.uploads) for wave in waves)
     suffixes = " ".join(waves_module.SUFFIXES)
@@ -169,6 +170,14 @@ def main(argv=None) -> int:
         "--out",
         metavar="DIR",
         help="where --extract-waves writes (default: the input path plus .wavs)",
+    )
+    parser.add_argument(
+        "--wave-hz",
+        type=float,
+        default=waves_module.CYCLE_HZ,
+        metavar="HZ",
+        help="pitch of the single-cycle .wav files"
+        f" (default {waves_module.CYCLE_HZ:.2f}, C4)",
     )
     parser.add_argument(
         "--preview-hz",

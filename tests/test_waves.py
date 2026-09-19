@@ -1,3 +1,4 @@
+import math
 import os
 import struct
 import tempfile
@@ -177,11 +178,44 @@ class WriteTests(unittest.TestCase):
             with wave_file.open(os.path.join(out, "wave-00" + waves.WAV_SUFFIX)) as handle:
                 self.assertEqual(handle.getnchannels(), 1)
                 self.assertEqual(handle.getsampwidth(), waves.WAV_WIDTH)
-                self.assertEqual(handle.getframerate(), waves.WAV_RATE)
+                self.assertEqual(handle.getframerate(), waves.cycle_rate())
                 self.assertEqual(handle.getnframes(), WAVE_LENGTH)
                 frames = handle.readframes(WAVE_LENGTH)
         values = struct.unpack(f"<{WAVE_LENGTH}h", frames)
         self.assertEqual(list(values), waves.to_pcm16(RAMP))
+
+    def test_the_cycle_rate_puts_the_wave_at_c4(self):
+        rate = waves.cycle_rate()
+        self.assertEqual(rate, 8372)
+        played = rate / WAVE_LENGTH
+        cents = 1200 * math.log2(played / waves.CYCLE_HZ)
+        self.assertLess(abs(cents), 1.0)
+
+    def test_the_cycle_rate_follows_the_asked_pitch(self):
+        self.assertEqual(waves.cycle_rate(waves.CYCLE_HZ * 2), 2 * 8372)
+        self.assertEqual(waves.cycle_rate(440.0), round(WAVE_LENGTH * 440.0))
+        self.assertGreaterEqual(waves.cycle_rate(0.0), 1)
+
+    def test_the_pitch_is_the_only_thing_the_rate_changes(self):
+        vgm = make_vgm(upload(0, RAMP))
+        found = waves.extract(vgm)
+        with tempfile.TemporaryDirectory() as out:
+            waves.write_files(vgm, found, out, cycle_hz=440.0)
+            path = os.path.join(out, "wave-00" + waves.WAV_SUFFIX)
+            with wave_file.open(path) as handle:
+                self.assertEqual(handle.getframerate(), waves.cycle_rate(440.0))
+                frames = handle.readframes(WAVE_LENGTH)
+        self.assertEqual(
+            list(struct.unpack(f"<{WAVE_LENGTH}h", frames)), waves.to_pcm16(RAMP)
+        )
+
+    def test_the_long_preview_keeps_the_standard_rate(self):
+        vgm = make_vgm(upload(0, RAMP))
+        found = waves.extract(vgm)
+        with tempfile.TemporaryDirectory() as out:
+            waves.write_files(vgm, found, out)
+            with wave_file.open(os.path.join(out, "wave-00" + waves.LONG_WAV_SUFFIX)) as h:
+                self.assertEqual(h.getframerate(), waves.WAV_RATE)
 
     def test_long_wav_runs_for_the_asked_length(self):
         vgm = make_vgm(upload(0, RAMP))

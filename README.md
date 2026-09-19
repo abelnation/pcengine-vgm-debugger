@@ -96,16 +96,19 @@ song.vgz.wavs/
   manifest.txt       where each wave is uploaded, and an ASCII plot
   wave-00.pcm        32 raw bytes, one per sample, values 0 to 31
   wave-00.hex        the same bytes as text, 16 to a line
-  wave-00.wav        one cycle, uncompressed 16-bit mono at 44100 Hz
+  wave-00.wav        one cycle, uncompressed 16-bit mono, pitched at C4
   wave-00.long.wav   the same cycle repeated, to preview by ear
   wave-01.pcm
   ...
 ```
 
-`wave-NN.wav` holds a single cycle, so it lasts 0.7 ms. Load it in a sampler
-and loop it. `wave-NN.long.wav` repeats that cycle at 440 Hz for 2 seconds, so
-any audio player gives you the timbre. Change it with `--preview-hz` and
-`--preview-seconds`.
+`wave-NN.wav` holds a single cycle. Its sample rate sets its pitch: 32 samples
+at 8372 Hz is C4, so it loads into a sampler already in tune. The samples
+themselves are untouched, and `--wave-hz` moves the pitch.
+
+`wave-NN.long.wav` repeats that cycle at 440 Hz for 2 seconds at 44100 Hz, so
+any audio player gives you the timbre. `--preview-hz` and `--preview-seconds`
+change it.
 
 Both files scale the 5-bit samples around their 15.5 midpoint, so a flat table
 is silence and the range 0 to 31 fills 16-bit full scale. The preview picks the
