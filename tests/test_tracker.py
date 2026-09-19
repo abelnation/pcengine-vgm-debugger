@@ -125,6 +125,17 @@ class FormatTests(unittest.TestCase):
         self.assertNotIn("00", tracker.format_cell(rows[0].cells[0], wide=False))
         self.assertIn("00", tracker.format_cell(rows[0].cells[0], wide=True))
 
+    def test_the_cell_reads_note_then_amplitude_then_instrument(self):
+        cell = tracker.Cell("C-5", "07", "1B")
+        self.assertEqual(tracker.format_cell(cell, wide=True), "C-5 1B 07")
+        self.assertEqual(tracker.format_cell(cell, wide=False), "C-5 1B")
+
+    def test_the_amplitude_column_holds_its_place_in_both_forms(self):
+        cell = tracker.Cell("C-5", "07", "1B")
+        narrow = tracker.format_cell(cell, wide=False)
+        wide = tracker.format_cell(cell, wide=True)
+        self.assertTrue(wide.startswith(narrow))
+
     def test_the_dump_holds_a_line_per_row(self):
         vgm, rows = self.rows()
         with tempfile.TemporaryDirectory() as out:

@@ -165,9 +165,9 @@ earlier run so you can remove them yourself.
 - Tracker: on the right, one row per driver tick, one column group per channel.
   `...` means sounding with no new note, `---` means silent. The view scrolls
   with playback and marks the current row. Press `t` to hide it.
-  - A cell reads note, instrument and amplitude in hex at 162 terminal columns
-    or wider. Below that it drops the instrument and reads note and amplitude.
-    Below 144 columns the panel hides itself.
+  - A cell reads note, amplitude in hex, then the instrument, at 162 terminal
+    columns or wider. Below that it drops the instrument, leaving note and
+    amplitude in the same places. Below 144 columns the panel hides itself.
 
 The wave name on a channel's second row is the file stem `--extract-waves`
 writes, so `wave-03` on channel 2 means that channel holds the table in

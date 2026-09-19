@@ -26,7 +26,7 @@ NO_VALUE = ".."
 
 ROW_LABEL = 5  # digits in the row number
 CELL_NARROW = len("C-5 1F")  # note and amplitude
-CELL_WIDE = len("C-5 00 1F")  # note, instrument and amplitude
+CELL_WIDE = len("C-5 1F 00")  # note, amplitude and instrument
 
 
 @dataclass
@@ -103,8 +103,9 @@ def build(vgm: VgmFile, analysis: Analysis = None) -> list:
 
 
 def format_cell(cell: Cell, wide: bool) -> str:
+    """Note, amplitude, then the instrument. The narrow cell drops the last."""
     if wide:
-        return f"{cell.note} {cell.instrument} {cell.amplitude}"
+        return f"{cell.note} {cell.amplitude} {cell.instrument}"
     return f"{cell.note} {cell.amplitude}"
 
 
@@ -135,7 +136,7 @@ def dump(vgm: VgmFile, rows: list, path: str) -> None:
     with open(path, "w", encoding="utf-8") as handle:
         handle.write(f"source  {vgm.path}\n")
         handle.write(f"rows    {len(rows)} ticks, one per video frame\n")
-        handle.write(f"cell    note, instrument, amplitude in hex\n")
+        handle.write("cell    note, amplitude in hex, instrument\n")
         handle.write(f"        {NO_NOTE} sounding with no new note, {SILENT} silent\n\n")
         handle.write("time      " + format_header(wide=True) + "\n")
         for row in rows:
