@@ -38,7 +38,33 @@ Text modes:
 pcevgm file.vgm --info             # header, clocks, GD3 tags
 pcevgm file.vgm --dump 200         # first 200 decoded commands
 pcevgm file.vgm --extract-waves    # write the wave tables to file.vgm.wavs/
+pcevgm file.vgm --notes 100        # instrument table, then the first 100 notes
 ```
+
+## Note, envelope and instrument analysis
+
+This is preliminary. Read the numbers as estimates.
+
+The driver family in the sample rips rarely gates a note. It leaves a channel
+enabled and rewrites pitch and amplitude every video frame, so a note start has
+to be inferred. The detector groups writes into instants, meaning every write
+that shares one sample time, and starts a note when any of these holds:
+
+- the channel gates on while its amplitude is above zero
+- the pitch reloads by more than a semitone
+- the amplitude jumps up by four steps, about 6 dB
+
+It debounces to one frame, and ends a note at amplitude zero, at a gate off, at
+a switch to noise or DDA, or at the next onset.
+
+An envelope is the sequence of amplitudes the driver wrote during the note. A
+note cut short gives a prefix of a longer envelope, so prefixes merge into the
+longest envelope that contains them. An instrument is a wave table paired with
+an envelope, numbered `inst-00` like the wave files. The TUI names the
+instrument playing on each channel on the channel's second row.
+
+There is no reference note list for these files, so the accuracy of the
+detector is untested. Only its output is checked.
 
 ## Wave extraction
 
@@ -97,9 +123,9 @@ earlier run so you can remove them yourself.
     divider), `HZ` and `NOTE` (the divider as a pitch, with cents offset),
     `dB L` and `dB R` (attenuation per side), `AMP` and `BAL` (the raw
     amplitude and balance registers).
-  - Second row: the name of the wave table the channel holds, the DDA sample
-    while in DDA mode and the noise register on channels 4 and 5, then a
-    horizontal meter under each
+  - Second row: the wave table the channel holds, the instrument the analysis
+    found, the DDA sample while in DDA mode and the noise register on channels
+    4 and 5, then a horizontal meter under each
     of `dB L`, `dB R` and `AMP`. The level meters read empty at -60 dB and full
     at 0 dB. The `AMP` meter tracks the raw 0 to 31 register. Partial blocks
     give each meter character 8 steps.
@@ -150,6 +176,7 @@ python -m unittest discover -s tests -t .
 | `src/pcevgm/huc6280.py` | PSG register model and pitch / level maths |
 | `src/pcevgm/player.py` | cursor over the stream, state replay, command text |
 | `src/pcevgm/waves.py` | wave table extraction and the `.pcm` / `.hex` output |
+| `src/pcevgm/notes.py` | note detection, envelopes and instruments |
 | `src/pcevgm/keyboard.py` | the piano keyboard view of the current pitches |
 | `src/pcevgm/tui.py` | curses screen and key handling |
 | `src/pcevgm/cli.py` | argument parsing and the text modes |
@@ -169,6 +196,11 @@ python -m unittest discover -s tests -t .
 - A channel counts as sounding on the keyboard above -40 dB. At -60 dB the
   board fills with channels parked on divider 0 at 27 Hz.
 - The keyboard needs about 74 terminal columns and 29 rows.
+- Note detection is a heuristic tuned on one game's sound driver. A driver
+  that gates every note would need no heuristic; one that uses the hardware
+  LFO for vibrato would defeat the pitch test.
+- The TUI replays the stream twice at load, once for the command text and
+  once for the analysis. The largest rip here takes 0.22 s.
 - Commands for other chips are decoded for length and time only.
 - Wave extraction ignores a partial pass. A track that rewrites only part of
   a table produces no new entry until the next full pass.

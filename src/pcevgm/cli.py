@@ -5,9 +5,16 @@ from __future__ import annotations
 import argparse
 import sys
 
+from . import notes as notes_module
 from . import waves as waves_module
 from .player import HUC6280_WRITE, build_descriptions
 from .vgm import SAMPLE_RATE, VgmError, load
+
+
+def _time_text(sample: int) -> str:
+    seconds = sample / SAMPLE_RATE
+    minutes = int(seconds // 60)
+    return f"{minutes:02d}:{seconds - minutes * 60:05.2f}"
 
 
 def _print_info(vgm) -> None:
@@ -68,6 +75,46 @@ def _extract_waves(vgm, args) -> int:
     return 0
 
 
+def _print_notes(vgm, count: int) -> int:
+    from collections import Counter
+
+    analysis = notes_module.analyse(vgm)
+    if not analysis.notes:
+        print("pcevgm: the detector found no notes", file=sys.stderr)
+        return 1
+    use = Counter(note.instrument for note in analysis.notes)
+    print(f"notes        {len(analysis.notes)}")
+    print(f"envelopes    {len(analysis.envelopes)}")
+    print(f"instruments  {len(analysis.instruments)}")
+    print()
+    print("instrument   wave      envelope  notes  channels  amplitude steps")
+    for instrument, uses in use.most_common():
+        wave, envelope_id = analysis.instruments[instrument]
+        shape = analysis.envelopes[envelope_id]
+        body = " ".join(str(value) for value in shape[:12])
+        if len(shape) > 12:
+            body += " .."
+        channels = ",".join(
+            str(c) for c in sorted({n.channel for n in analysis.notes
+                                    if n.instrument == instrument})
+        )
+        print(
+            f"{analysis.instrument_names[instrument]:<12} {wave:<9} "
+            f"{analysis.envelope_names[envelope_id]:<9} {uses:5d}  {channels:<8}  {body}"
+        )
+    print()
+    print("ch  time      note      frames  instrument  wave      divider")
+    for note in analysis.notes[:count]:
+        wave, _ = analysis.instruments[note.instrument]
+        print(
+            f"{note.channel:2d}  {_time_text(note.start)}  "
+            f"{analysis.pitch_text(note):<8}  {note.length / notes_module.FRAME:6.1f}  "
+            f"{analysis.instrument_names[note.instrument]:<10}  {wave:<9} "
+            f"0x{note.divider:03X}"
+        )
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="pcevgm",
@@ -82,6 +129,14 @@ def main(argv=None) -> int:
         const=64,
         metavar="N",
         help="print the first N commands, then exit (default 64)",
+    )
+    parser.add_argument(
+        "--notes",
+        type=int,
+        nargs="?",
+        const=64,
+        metavar="N",
+        help="print the instrument table and the first N notes, then exit (default 64)",
     )
     parser.add_argument(
         "--extract-waves",
@@ -121,6 +176,8 @@ def main(argv=None) -> int:
     if args.dump is not None:
         _print_dump(vgm, args.dump)
         return 0
+    if args.notes is not None:
+        return _print_notes(vgm, args.notes)
     if args.extract_waves:
         return _extract_waves(vgm, args)
 

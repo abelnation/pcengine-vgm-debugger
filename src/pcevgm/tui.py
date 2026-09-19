@@ -26,10 +26,10 @@ LEVEL_WIDTH = 6  # the dB L and dB R columns
 AMP_WIDTH = 3
 TAIL_WIDTH = 8  # the gap, the BAL column and the gap before WAVE
 UNKNOWN_WAVE = "wave  --"  # the table matches no complete upload
+UNKNOWN_INSTRUMENT = "inst  --"  # no note detected on this channel now
 from . import keyboard
+from .notes import analyse
 from .player import HUC6280_WRITE, Timeline, build_descriptions
-from .waves import extract as extract_waves
-from .waves import names_by_samples
 from .vgm import SAMPLE_RATE, VgmFile
 
 FRAME_SAMPLES = 735  # one NTSC video frame
@@ -95,8 +95,10 @@ class Debugger:
         self.vgm = vgm
         self.timeline = Timeline(vgm)
         self.descriptions = build_descriptions(vgm)
-        # Lets a playing channel be matched to its --extract-waves file.
-        self.wave_names = names_by_samples(extract_waves(vgm))
+        # Lets a playing channel be matched to its --extract-waves file and to
+        # the instrument the analysis found.
+        self.analysis = analyse(vgm)
+        self.wave_names = self.analysis.wave_names
         self.playing = False
         self.speed_index = 2
         self.writes_only = False
@@ -176,6 +178,12 @@ class Debugger:
         )
 
         parts = [self.wave_names.get(bytes(channel.waveform), UNKNOWN_WAVE)]
+        found = self.analysis.instrument_at(index, self.timeline.sample)
+        parts.append(
+            UNKNOWN_INSTRUMENT
+            if found is None
+            else self.analysis.instrument_names[found]
+        )
         if channel.dda:
             parts.append(f"dda {channel.dda_sample:2d}")
         if index >= FIRST_NOISE_CHANNEL:

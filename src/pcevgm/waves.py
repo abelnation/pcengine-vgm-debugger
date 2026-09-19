@@ -149,10 +149,15 @@ def folder_for(path: str) -> str:
     return path + FOLDER_SUFFIX
 
 
+def numbered_names(prefix: str, count: int) -> list:
+    """prefix-00, prefix-01 and so on, padded to a common width."""
+    width = max(2, len(str(max(0, count - 1))))
+    return [f"{prefix}-{index:0{width}d}" for index in range(count)]
+
+
 def stem_names(count: int) -> list:
     """The file name stems the dump uses, one per wave, in first-use order."""
-    width = max(2, len(str(max(0, count - 1))))
-    return [f"wave-{index:0{width}d}" for index in range(count)]
+    return numbered_names("wave", count)
 
 
 def names_by_samples(waves: list) -> dict:
